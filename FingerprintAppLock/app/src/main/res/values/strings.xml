@@ -1,0 +1,29 @@
+<resources>
+    <string name="app_name">Fingerprint App Lock</string>
+    <string name="accessibility_description">Detects when you open an app you have locked so Fingerprint App Lock can ask for your fingerprint. It only reads which app is in the foreground; it does not read screen content or what you type.</string>
+    <string name="service_off_title">Protection is off</string>
+    <string name="service_off_body">Turn on the Fingerprint App Lock accessibility service so locked apps ask for your fingerprint.</string>
+    <string name="open_settings">Open settings</string>
+    <string name="search_apps">Search apps</string>
+    <string name="no_search_matches">No apps match \"%1$s\".</string>
+    <string name="unlock_title">Unlock %1$s</string>
+    <string name="unlock_subtitle">Touch the fingerprint sensor</string>
+    <string name="settings_unlock_title">Unlock Fingerprint App Lock</string>
+    <string name="app_is_locked">%1$s is locked</string>
+    <string name="unlock_button">Unlock with fingerprint</string>
+    <string name="cancel">Cancel</string>
+    <string name="no_biometric_enrolled">No fingerprint is enrolled. Add one in Settings → Security → Fingerprint.</string>
+    <string name="no_biometric_hardware">This device has no fingerprint sensor (or it is unavailable).</string>
+    <string name="biometric_unavailable">Fingerprint authentication is unavailable right now.</string>
+    <string name="locked_count">%1$d app(s) locked</string>
+    <string name="auth_required_title">Fingerprint required</string>
+    <string name="auth_required_body">Confirm your fingerprint to view or change which apps are locked.</string>
+    <string name="no_biometric_blocked">These settings stay locked until a strong biometric is available. Existing app locks are unchanged.\n\n%1$s</string>
+    <string name="enroll_biometric">Enroll a fingerprint</string>
+    <string name="biometric_invalidated_subtitle">Fingerprint enrollment changed</string>
+    <string name="biometric_invalidated_detail">The previous key was revoked. Authenticate to set app lock up again.</string>
+    <string name="biometric_rearmed">Fingerprint enrollment changed. App lock now uses your current fingerprints.</string>
+    <string name="auth_not_verified">Authentication could not be verified. Nothing was unlocked.</string>
+    <string name="lock_stays_locked">%1$s This app stays locked.</string>
+    <string name="keystore_error">The secure hardware key could not be used. Nothing was unlocked.</string>
+</resources>

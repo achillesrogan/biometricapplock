@@ -1,0 +1,16 @@
+<resources>
+    <!-- No action bar: on targetSdk 35 its divider was drawn through the status bar. -->
+    <style name="Theme.AppLock" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+
+    <style name="Theme.AppLock.Lock" parent="Theme.AppLock">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>
