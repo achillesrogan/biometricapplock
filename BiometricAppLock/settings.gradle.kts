@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "FingerprintAppLock"
+rootProject.name = "BiometricAppLock"
 include(":app")

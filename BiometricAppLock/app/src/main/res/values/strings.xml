@@ -1,14 +1,14 @@
 <resources>
-    <string name="app_name">Fingerprint App Lock</string>
-    <string name="accessibility_description">Detects when you open an app you have locked so Fingerprint App Lock can ask for your fingerprint. It only reads which app is in the foreground; it does not read screen content or what you type.</string>
+    <string name="app_name">Biometric App Lock</string>
+    <string name="accessibility_description">Detects when you open an app you have locked so Biometric App Lock can ask for your fingerprint. It only reads which app is in the foreground; it does not read screen content or what you type.</string>
     <string name="service_off_title">Protection is off</string>
-    <string name="service_off_body">Turn on the Fingerprint App Lock accessibility service so locked apps ask for your fingerprint.</string>
+    <string name="service_off_body">Turn on the Biometric App Lock accessibility service so locked apps ask for your fingerprint.</string>
     <string name="open_settings">Open settings</string>
     <string name="search_apps">Search apps</string>
     <string name="no_search_matches">No apps match \"%1$s\".</string>
     <string name="unlock_title">Unlock %1$s</string>
     <string name="unlock_subtitle">Touch the fingerprint sensor</string>
-    <string name="settings_unlock_title">Unlock Fingerprint App Lock</string>
+    <string name="settings_unlock_title">Unlock Biometric App Lock</string>
     <string name="app_is_locked">%1$s is locked</string>
     <string name="unlock_button">Unlock with fingerprint</string>
     <string name="cancel">Cancel</string>
