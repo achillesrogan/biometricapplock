@@ -23,6 +23,7 @@ import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * Settings screen: pick which apps to lock.
@@ -301,39 +302,51 @@ class MainActivity : AppCompatActivity() {
         val locked = LockStore.lockedPackages(this)
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
-        return pm.queryIntentActivities(launcherIntent, 0)
+        val identities = pm.queryIntentActivities(launcherIntent, 0)
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
             .filter { it.packageName != packageName }
             .map {
-                AppEntry(
+                AppIdentity(
                     label = pm.getApplicationLabel(it).toString(),
                     packageName = it.packageName,
-                    icon = pm.getApplicationIcon(it),
                     locked = it.packageName in locked,
                 )
             }
-            .sortedWith(compareByDescending<AppEntry> { it.locked }.thenBy { it.label.lowercase() })
+        val icons = identities.associate { identity ->
+            identity.packageName to pm.getApplicationIcon(identity.packageName)
+        }
+        return AppListOrder.place(identities, Locale.getDefault()).map { placed ->
+            AppEntry(
+                label = placed.label,
+                packageName = placed.packageName,
+                icon = icons.getValue(placed.packageName),
+                locked = placed.locked,
+                section = placed.section,
+            )
+        }
     }
 
     private fun onToggle(entry: AppEntry, locked: Boolean) {
         if (!authenticated) return
         LockStore.setLocked(this, entry.packageName, locked)
+        // Keep the row where it was. The next load sorts locked apps back to the top.
         allApps = allApps.map { if (it.packageName == entry.packageName) it.copy(locked = locked) else it }
         applyFilter()
     }
 
     private fun applyFilter() {
         val raw = query.trim()
-        val q = raw.lowercase()
-        val shown = if (q.isEmpty()) {
-            allApps
-        } else {
-            allApps.filter { q in it.label.lowercase() || q in it.packageName.lowercase() }
-        }
-        adapter.submitList(shown)
+        val shown = AppListOrder.filter(
+            allApps,
+            raw,
+            Locale.getDefault(),
+            { it.label },
+            { it.packageName },
+        )
+        adapter.submitList(sectionRows(shown))
         lockedCount.text = getString(R.string.locked_count, allApps.count { it.locked })
-        val noMatches = q.isNotEmpty() && shown.isEmpty() && progress.visibility != View.VISIBLE
+        val noMatches = raw.isNotEmpty() && shown.isEmpty() && progress.visibility != View.VISIBLE
         emptySearch.visibility = if (noMatches) View.VISIBLE else View.GONE
         if (noMatches) emptySearch.text = getString(R.string.no_search_matches, raw)
     }

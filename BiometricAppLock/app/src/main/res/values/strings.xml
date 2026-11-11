@@ -43,6 +43,8 @@
     <string name="no_biometric_hardware">This device has no fingerprint sensor (or it is unavailable).</string>
     <string name="biometric_unavailable">Fingerprint authentication is unavailable right now.</string>
     <string name="locked_count">%1$d app(s) locked</string>
+    <string name="section_locked">Locked</string>
+    <string name="section_other">Other apps</string>
     <string name="auth_required_title">Fingerprint required</string>
     <string name="auth_required_body">Confirm your fingerprint to view or change which apps are locked.</string>
     <string name="no_biometric_blocked">These settings stay locked until a strong biometric is available. Existing app locks are unchanged.\n\n%1$s</string>

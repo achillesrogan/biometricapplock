@@ -16,6 +16,7 @@ Current version: **1.4** (versionCode 5).
 - `FLAG_SECURE` on the settings screen and the lock screen, so those windows are left out of screenshots and the Recents preview.
 - `filterTouchesWhenObscured` on both screens, so a touch that passes through another window cannot flip a lock switch or press the unlock button.
 - Search at the top of the app list. It filters live, case-insensitively, by app name and package name. Lock switches keep the real saved state while the list is filtered. A search with no hits shows an empty state. The field is inside the authenticated content and is hidden until biometric auth succeeds.
+- The list opens with locked apps first, then the others. Each group is alphabetical in the phone’s locale, ignoring case. Turning a lock on or off leaves that row where it is until the next time the list loads.
 - Edge-to-edge layout for target SDK 35. Content sits below the status bar, and the last list row scrolls above the navigation bar for both gesture and 3-button navigation. Light and dark themes use the Material 3 day/night theme.
 - **Uninstall protection** (version 1.4). While the switch is on, a fingerprint is required before a locked app, or this app, can be uninstalled. The same prompt covers force stop and clear storage on those apps when the system screen is one this build recognizes, and it covers turning off device administrator. Android will not uninstall this app until that administrator is deactivated. The administrator requests no lock, wipe, or password policy.
 
@@ -143,7 +144,8 @@ You can also open the `BiometricAppLock` directory in Android Studio (Ladybug or
         │   │   ├── Biometrics.kt
         │   │   ├── LockStore.kt
         │   │   ├── LockState.kt
-        │   │   ├── AppListAdapter.kt
+            │   │   ├── AppListAdapter.kt
+            │   │   ├── AppListOrder.kt
         │   │   ├── SystemBars.kt
         │   │   ├── UninstallSignals.kt
         │   │   ├── UninstallProtection.kt
@@ -212,6 +214,7 @@ versionCode 5. Same package id `com.achillesrogan.applock`, so this installs ove
 - Device administrator, with no extra policies, so Android will not uninstall this app until the administrator is turned off. The deactivation screen is covered by the same fingerprint prompt. `onDisableRequested` tells the user that uninstall protection is on.
 - The accessibility service can read window text on package-installer and Settings screens to tell which app the action is for, and it can close that screen if the fingerprint is cancelled. Ordinary app windows are still not read.
 - Guided setup. The first launch opens each needed system screen in order and advances when you return. Review setup opens the same list again. [docs/ADB_SETUP.md](docs/ADB_SETUP.md) has the matching adb commands.
+- The app list groups locked apps above the others, each group in locale alphabetical order. A switch stays put until the list is loaded again.
 
 ### 1.3 — 2026-11-10
 
