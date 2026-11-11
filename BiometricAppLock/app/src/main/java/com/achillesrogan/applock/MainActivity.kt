@@ -1,10 +1,7 @@
 package com.achillesrogan.applock
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.View
 import android.view.WindowManager
 import android.widget.ProgressBar
@@ -40,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authMessage: TextView
     private lateinit var enrollButton: MaterialButton
     private lateinit var banner: MaterialCardView
+    private lateinit var reviewSetupButton: MaterialButton
     private lateinit var protectionSwitch: MaterialSwitch
     private lateinit var lockedCount: TextView
     private lateinit var emptySearch: TextView
@@ -53,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private var authenticated = false
     private var authInProgress = false
     private var updatingProtectionSwitch = false
+    private var offeredSetup = false
 
     private val enableAdminLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -60,6 +59,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        offeredSetup = savedInstanceState?.getBoolean(STATE_OFFERED_SETUP) == true
         // Do not read an authenticated flag from savedInstanceState. Rotation and
         // process death must prompt again, and the lock list must not flash first.
         prepareEdgeToEdgeWindow()
@@ -83,8 +83,11 @@ class MainActivity : AppCompatActivity() {
         appList.adapter = adapter
         applyWindowInsets()
         findViewById<MaterialButton>(R.id.openSettingsButton).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            Toast.makeText(this, "Find \"${getString(R.string.app_name)}\" and turn it on", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, SetupActivity::class.java))
+        }
+        reviewSetupButton = findViewById(R.id.reviewSetupButton)
+        reviewSetupButton.setOnClickListener {
+            startActivity(Intent(this, SetupActivity::class.java))
         }
         protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
         protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
@@ -107,9 +110,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_OFFERED_SETUP, offeredSetup)
+    }
+
     override fun onResume() {
         super.onResume()
         if (isFinishing) return
+        // First open walks through system settings before the fingerprint gate,
+        // so each setup screen is not followed by another fingerprint prompt.
+        if (!offeredSetup && !SetupStatus.requiredComplete(this)) {
+            offeredSetup = true
+            startActivity(Intent(this, SetupActivity::class.java))
+            return
+        }
         if (!authenticated) {
             content.visibility = View.GONE
             authGate.visibility = View.VISIBLE
@@ -120,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             showBlocked(Biometrics.unavailableReason(this) ?: getString(R.string.biometric_unavailable))
             return
         }
-        banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+        refreshSetupEntry()
         refreshProtectionSwitch()
     }
 
@@ -169,7 +184,7 @@ class MainActivity : AppCompatActivity() {
                 authenticated = true
                 authGate.visibility = View.GONE
                 content.visibility = View.VISIBLE
-                banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+                refreshSetupEntry()
                 refreshProtectionSwitch()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
@@ -229,6 +244,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun refreshSetupEntry() {
+        val needed = !SetupStatus.requiredComplete(this)
+        banner.visibility = if (needed) View.VISIBLE else View.GONE
+        reviewSetupButton.visibility = if (needed) View.GONE else View.VISIBLE
+    }
+
     private fun refreshProtectionSwitch() {
         val active = DeviceAdmin.isActive(this)
         if (protectionSwitch.isChecked == active) return
@@ -258,27 +279,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openEnrollment() {
-        val intents = mutableListOf<Intent>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            intents += Intent(Settings.ACTION_BIOMETRIC_ENROLL).putExtra(
-                Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
-                BiometricManager.Authenticators.BIOMETRIC_STRONG,
-            )
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            @Suppress("DEPRECATION")
-            intents += Intent(Settings.ACTION_FINGERPRINT_ENROLL)
-        }
-        intents += Intent(Settings.ACTION_SECURITY_SETTINGS)
-        val started = intents.any { intent ->
-            try {
-                startActivity(intent)
-                true
-            } catch (e: ActivityNotFoundException) {
-                false
-            }
-        }
-        if (!started) {
+        if (!SetupIntents.open(this, SetupPlan.StepId.FINGERPRINT)) {
             Toast.makeText(this, R.string.no_biometric_enrolled, Toast.LENGTH_LONG).show()
         }
     }
@@ -335,5 +336,9 @@ class MainActivity : AppCompatActivity() {
         val noMatches = q.isNotEmpty() && shown.isEmpty() && progress.visibility != View.VISIBLE
         emptySearch.visibility = if (noMatches) View.VISIBLE else View.GONE
         if (noMatches) emptySearch.text = getString(R.string.no_search_matches, raw)
+    }
+
+    companion object {
+        private const val STATE_OFFERED_SETUP = "offered_setup"
     }
 }
