@@ -1,15 +1,13 @@
 package com.achillesrogan.applock
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.View
 import android.view.WindowManager
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.core.view.updatePadding
@@ -20,10 +18,12 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * Settings screen: pick which apps to lock.
@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authMessage: TextView
     private lateinit var enrollButton: MaterialButton
     private lateinit var banner: MaterialCardView
+    private lateinit var reviewSetupButton: MaterialButton
+    private lateinit var protectionSwitch: MaterialSwitch
     private lateinit var lockedCount: TextView
     private lateinit var emptySearch: TextView
     private lateinit var progress: ProgressBar
@@ -49,9 +51,16 @@ class MainActivity : AppCompatActivity() {
 
     private var authenticated = false
     private var authInProgress = false
+    private var updatingProtectionSwitch = false
+    private var offeredSetup = false
+
+    private val enableAdminLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { /* The switch matches device-admin state after the next fingerprint. */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        offeredSetup = savedInstanceState?.getBoolean(STATE_OFFERED_SETUP) == true
         // Do not read an authenticated flag from savedInstanceState. Rotation and
         // process death must prompt again, and the lock list must not flash first.
         prepareEdgeToEdgeWindow()
@@ -75,9 +84,14 @@ class MainActivity : AppCompatActivity() {
         appList.adapter = adapter
         applyWindowInsets()
         findViewById<MaterialButton>(R.id.openSettingsButton).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            Toast.makeText(this, "Find \"${getString(R.string.app_name)}\" and turn it on", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, SetupActivity::class.java))
         }
+        reviewSetupButton = findViewById(R.id.reviewSetupButton)
+        reviewSetupButton.setOnClickListener {
+            startActivity(Intent(this, SetupActivity::class.java))
+        }
+        protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
+        protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
         findViewById<TextInputEditText>(R.id.searchInput).doAfterTextChanged {
             query = it?.toString().orEmpty()
             applyFilter()
@@ -97,9 +111,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_OFFERED_SETUP, offeredSetup)
+    }
+
     override fun onResume() {
         super.onResume()
         if (isFinishing) return
+        // First open walks through system settings before the fingerprint gate,
+        // so each setup screen is not followed by another fingerprint prompt.
+        if (!offeredSetup && !SetupStatus.requiredComplete(this)) {
+            offeredSetup = true
+            startActivity(Intent(this, SetupActivity::class.java))
+            return
+        }
         if (!authenticated) {
             content.visibility = View.GONE
             authGate.visibility = View.VISIBLE
@@ -110,7 +136,8 @@ class MainActivity : AppCompatActivity() {
             showBlocked(Biometrics.unavailableReason(this) ?: getString(R.string.biometric_unavailable))
             return
         }
-        banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+        refreshSetupEntry()
+        refreshProtectionSwitch()
     }
 
     override fun onStop() {
@@ -158,7 +185,8 @@ class MainActivity : AppCompatActivity() {
                 authenticated = true
                 authGate.visibility = View.GONE
                 content.visibility = View.VISIBLE
-                banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+                refreshSetupEntry()
+                refreshProtectionSwitch()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
                 }
@@ -217,28 +245,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openEnrollment() {
-        val intents = mutableListOf<Intent>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            intents += Intent(Settings.ACTION_BIOMETRIC_ENROLL).putExtra(
-                Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
-                BiometricManager.Authenticators.BIOMETRIC_STRONG,
-            )
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            @Suppress("DEPRECATION")
-            intents += Intent(Settings.ACTION_FINGERPRINT_ENROLL)
-        }
-        intents += Intent(Settings.ACTION_SECURITY_SETTINGS)
-        val started = intents.any { intent ->
-            try {
-                startActivity(intent)
-                true
-            } catch (e: ActivityNotFoundException) {
-                false
+    private fun refreshSetupEntry() {
+        val needed = !SetupStatus.requiredComplete(this)
+        banner.visibility = if (needed) View.VISIBLE else View.GONE
+        reviewSetupButton.visibility = if (needed) View.GONE else View.VISIBLE
+    }
+
+    private fun refreshProtectionSwitch() {
+        val active = DeviceAdmin.isActive(this)
+        if (protectionSwitch.isChecked == active) return
+        updatingProtectionSwitch = true
+        protectionSwitch.isChecked = active
+        updatingProtectionSwitch = false
+    }
+
+    private fun onProtectionToggled(checked: Boolean) {
+        if (updatingProtectionSwitch || !authenticated) return
+        val active = DeviceAdmin.isActive(this)
+        if (checked == active) return
+        if (checked) {
+            if (!AppLockService.isEnabled(this)) {
+                Toast.makeText(this, R.string.uninstall_protection_needs_service, Toast.LENGTH_LONG).show()
             }
+            enableAdminLauncher.launch(DeviceAdmin.enableIntent(this))
+            refreshProtectionSwitch()
+        } else if (!DeviceAdmin.deactivate(this)) {
+            Toast.makeText(this, R.string.device_admin_change_failed, Toast.LENGTH_LONG).show()
+            refreshProtectionSwitch()
+        } else {
+            protectionSwitch.postDelayed({
+                if (!isDestroyed) refreshProtectionSwitch()
+            }, 300)
         }
-        if (!started) {
+    }
+
+    private fun openEnrollment() {
+        if (!SetupIntents.open(this, SetupPlan.StepId.FINGERPRINT)) {
             Toast.makeText(this, R.string.no_biometric_enrolled, Toast.LENGTH_LONG).show()
         }
     }
@@ -260,40 +302,56 @@ class MainActivity : AppCompatActivity() {
         val locked = LockStore.lockedPackages(this)
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
-        return pm.queryIntentActivities(launcherIntent, 0)
+        val identities = pm.queryIntentActivities(launcherIntent, 0)
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
             .filter { it.packageName != packageName }
             .map {
-                AppEntry(
+                AppIdentity(
                     label = pm.getApplicationLabel(it).toString(),
                     packageName = it.packageName,
-                    icon = pm.getApplicationIcon(it),
                     locked = it.packageName in locked,
                 )
             }
-            .sortedWith(compareByDescending<AppEntry> { it.locked }.thenBy { it.label.lowercase() })
+        val icons = identities.associate { identity ->
+            identity.packageName to pm.getApplicationIcon(identity.packageName)
+        }
+        return AppListOrder.place(identities, Locale.getDefault()).map { placed ->
+            AppEntry(
+                label = placed.label,
+                packageName = placed.packageName,
+                icon = icons.getValue(placed.packageName),
+                locked = placed.locked,
+                section = placed.section,
+            )
+        }
     }
 
     private fun onToggle(entry: AppEntry, locked: Boolean) {
         if (!authenticated) return
         LockStore.setLocked(this, entry.packageName, locked)
+        // Keep the row where it was. The next load sorts locked apps back to the top.
         allApps = allApps.map { if (it.packageName == entry.packageName) it.copy(locked = locked) else it }
         applyFilter()
     }
 
     private fun applyFilter() {
         val raw = query.trim()
-        val q = raw.lowercase()
-        val shown = if (q.isEmpty()) {
-            allApps
-        } else {
-            allApps.filter { q in it.label.lowercase() || q in it.packageName.lowercase() }
-        }
-        adapter.submitList(shown)
+        val shown = AppListOrder.filter(
+            allApps,
+            raw,
+            Locale.getDefault(),
+            { it.label },
+            { it.packageName },
+        )
+        adapter.submitList(sectionRows(shown))
         lockedCount.text = getString(R.string.locked_count, allApps.count { it.locked })
-        val noMatches = q.isNotEmpty() && shown.isEmpty() && progress.visibility != View.VISIBLE
+        val noMatches = raw.isNotEmpty() && shown.isEmpty() && progress.visibility != View.VISIBLE
         emptySearch.visibility = if (noMatches) View.VISIBLE else View.GONE
         if (noMatches) emptySearch.text = getString(R.string.no_search_matches, raw)
+    }
+
+    companion object {
+        private const val STATE_OFFERED_SETUP = "offered_setup"
     }
 }
