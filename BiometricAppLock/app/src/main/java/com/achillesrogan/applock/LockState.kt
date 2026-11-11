@@ -12,6 +12,17 @@ object LockState {
     @Volatile
     var lockScreenFor: String? = null
 
+    /** True while a fingerprint prompt for uninstall protection is in front. */
+    @Volatile
+    var protectionActive: Boolean = false
+
+    /**
+     * Elapsed-realtime deadline. Protection prompts are skipped until then so cancelling
+     * one does not immediately open another on the same system dialog.
+     */
+    @Volatile
+    var suppressProtectionUntil: Long = 0L
+
     @Synchronized
     fun isUnlocked(pkg: String) = pkg in unlocked
 

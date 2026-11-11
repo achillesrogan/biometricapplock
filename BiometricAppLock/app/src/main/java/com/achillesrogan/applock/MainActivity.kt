@@ -10,6 +10,7 @@ import android.view.WindowManager
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.core.view.updatePadding
@@ -20,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authMessage: TextView
     private lateinit var enrollButton: MaterialButton
     private lateinit var banner: MaterialCardView
+    private lateinit var protectionSwitch: MaterialSwitch
     private lateinit var lockedCount: TextView
     private lateinit var emptySearch: TextView
     private lateinit var progress: ProgressBar
@@ -49,6 +52,11 @@ class MainActivity : AppCompatActivity() {
 
     private var authenticated = false
     private var authInProgress = false
+    private var updatingProtectionSwitch = false
+
+    private val enableAdminLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { /* The switch matches device-admin state after the next fingerprint. */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,6 +86,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             Toast.makeText(this, "Find \"${getString(R.string.app_name)}\" and turn it on", Toast.LENGTH_LONG).show()
         }
+        protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
+        protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
         findViewById<TextInputEditText>(R.id.searchInput).doAfterTextChanged {
             query = it?.toString().orEmpty()
             applyFilter()
@@ -111,6 +121,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+        refreshProtectionSwitch()
     }
 
     override fun onStop() {
@@ -159,6 +170,7 @@ class MainActivity : AppCompatActivity() {
                 authGate.visibility = View.GONE
                 content.visibility = View.VISIBLE
                 banner.visibility = if (AppLockService.isEnabled(this)) View.GONE else View.VISIBLE
+                refreshProtectionSwitch()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
                 }
@@ -214,6 +226,34 @@ class MainActivity : AppCompatActivity() {
             )
             content.setPadding(contentHorizontal + bars.left, contentTop + bars.top, contentHorizontal + bars.right, 0)
             appList.updatePadding(bottom = listBottom + bars.bottom)
+        }
+    }
+
+    private fun refreshProtectionSwitch() {
+        val active = DeviceAdmin.isActive(this)
+        if (protectionSwitch.isChecked == active) return
+        updatingProtectionSwitch = true
+        protectionSwitch.isChecked = active
+        updatingProtectionSwitch = false
+    }
+
+    private fun onProtectionToggled(checked: Boolean) {
+        if (updatingProtectionSwitch || !authenticated) return
+        val active = DeviceAdmin.isActive(this)
+        if (checked == active) return
+        if (checked) {
+            if (!AppLockService.isEnabled(this)) {
+                Toast.makeText(this, R.string.uninstall_protection_needs_service, Toast.LENGTH_LONG).show()
+            }
+            enableAdminLauncher.launch(DeviceAdmin.enableIntent(this))
+            refreshProtectionSwitch()
+        } else if (!DeviceAdmin.deactivate(this)) {
+            Toast.makeText(this, R.string.device_admin_change_failed, Toast.LENGTH_LONG).show()
+            refreshProtectionSwitch()
+        } else {
+            protectionSwitch.postDelayed({
+                if (!isDestroyed) refreshProtectionSwitch()
+            }, 300)
         }
     }
 
