@@ -22,13 +22,24 @@ object SetupIntents {
     private const val FRAGMENT_ARG_KEY = ":settings:fragment_args_key"
     private const val SHOW_FRAGMENT_ARGS = ":settings:show_fragment_args"
 
+    /**
+     * Action Samsung Settings has used for the Auto Blocker page. There is no
+     * public contract for it. When it is missing, the explicit settings activity
+     * is tried, then Security settings.
+     */
+    private const val AUTO_BLOCKER_SETTINGS = "com.samsung.android.settings.AUTO_BLOCKER_SETTINGS"
+    private const val AUTO_BLOCKER_ACTIVITY =
+        "com.android.settings.Settings\$AutoBlockerSettingsActivity"
+
     fun open(context: Context, step: SetupPlan.StepId): Boolean {
         val intents = intentsFor(context, step).onEach { it.addCategory(Intent.CATEGORY_DEFAULT) }
-        // Prefer screens this phone actually has. If none resolve, still try:
-        // some OEM builds hide settings activities from resolveActivity.
-        val resolvable = intents.filter { it.resolveActivity(context.packageManager) != null }
-        val ordered = resolvable.ifEmpty { intents }
-        for (intent in ordered) {
+        val anyResolved = intents.any { it.resolveActivity(context.packageManager) != null }
+        for (intent in intents) {
+            val resolved = intent.resolveActivity(context.packageManager) != null
+            // Explicit components are started even when resolveActivity hides them.
+            // An implicit intent that does not resolve is skipped once another
+            // screen on the list does, so a missing deep link still reaches the fallback.
+            if (!resolved && intent.component == null && anyResolved) continue
             if (start(context, intent)) return true
         }
         return false
@@ -38,9 +49,16 @@ object SetupIntents {
         SetupPlan.StepId.FINGERPRINT -> fingerprintIntents()
         SetupPlan.StepId.RESTRICTED_SETTINGS -> appDetailsIntents(context)
         SetupPlan.StepId.ACCESSIBILITY -> accessibilityIntents(context)
+        SetupPlan.StepId.AUTO_BLOCKER -> autoBlockerIntents()
         SetupPlan.StepId.DEVICE_ADMIN -> deviceAdminIntents(context)
         SetupPlan.StepId.BATTERY -> batteryIntents(context)
     }
+
+    private fun autoBlockerIntents(): List<Intent> = listOf(
+        Intent(AUTO_BLOCKER_SETTINGS),
+        Intent().setComponent(ComponentName("com.android.settings", AUTO_BLOCKER_ACTIVITY)),
+        Intent(Settings.ACTION_SECURITY_SETTINGS),
+    )
 
     private fun accessibilityIntents(context: Context): List<Intent> {
         val component = ComponentName(context, AppLockService::class.java)

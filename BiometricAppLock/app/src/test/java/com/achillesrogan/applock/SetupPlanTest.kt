@@ -17,8 +17,18 @@ class SetupPlanTest {
         admin: Boolean = false,
         battery: Boolean = false,
         skipped: Set<SetupPlan.StepId> = emptySet(),
+        autoBlocker: AutoBlocker.Reading = AutoBlocker.Reading.ABSENT,
     ) = SetupPlan.Snapshot(
-        sdk, fingerprint, accessibility, restrictedMode, unknownInstaller, admin, battery, skipped,
+        sdk, fingerprint, accessibility, restrictedMode, unknownInstaller, admin, battery, skipped, autoBlocker,
+    )
+
+    private fun blockingAutoBlocker() = AutoBlocker.Reading(
+        present = true,
+        oneUiVersion = 70_000,
+        main = AutoBlocker.SwitchState.ON,
+        unauthorizedApps = AutoBlocker.SwitchState.ON,
+        usbCommands = AutoBlocker.SwitchState.ON,
+        maximumRestrictions = AutoBlocker.SwitchState.OFF,
     )
 
     private fun ids(snapshot: SetupPlan.Snapshot) = SetupPlan.steps(snapshot).map { it.id }
@@ -144,6 +154,106 @@ class SetupPlanTest {
         assertNull(SetupPlan.nextIncomplete(steps))
         assertNull(SetupPlan.autoAdvanceTarget(steps, SetupPlan.StepId.BATTERY))
         assertTrue(SetupPlan.requiredComplete(steps))
+    }
+
+    @Test
+    fun autoBlocker_isHiddenUnlessTheReadingSaysThePhoneHasIt() {
+        assertFalse(ids(snap()).contains(SetupPlan.StepId.AUTO_BLOCKER))
+        val shown = ids(snap(autoBlocker = blockingAutoBlocker()))
+        assertEquals(
+            listOf(
+                SetupPlan.StepId.FINGERPRINT,
+                SetupPlan.StepId.RESTRICTED_SETTINGS,
+                SetupPlan.StepId.ACCESSIBILITY,
+                SetupPlan.StepId.AUTO_BLOCKER,
+                SetupPlan.StepId.DEVICE_ADMIN,
+                SetupPlan.StepId.BATTERY,
+            ),
+            shown,
+        )
+    }
+
+    @Test
+    fun autoBlocker_isOptionalAndDoesNotBlockRequiredSetup() {
+        val steps = SetupPlan.steps(
+            snap(
+                fingerprint = true,
+                accessibility = true,
+                restrictedMode = SetupPlan.MODE_ALLOWED,
+                autoBlocker = blockingAutoBlocker(),
+            ),
+        )
+        val step = steps.first { it.id == SetupPlan.StepId.AUTO_BLOCKER }
+        assertEquals(SetupPlan.Requirement.OPTIONAL, step.requirement)
+        assertFalse(step.done)
+        assertFalse(step.manualCheck)
+        assertTrue(SetupPlan.requiredComplete(steps))
+        assertEquals(SetupPlan.StepId.AUTO_BLOCKER, SetupPlan.nextIncomplete(steps)?.id)
+    }
+
+    @Test
+    fun autoBlocker_manualCheckWhenTheSwitchesCannotBeRead() {
+        val unread = AutoBlocker.Reading(
+            present = true,
+            oneUiVersion = 70_000,
+            main = AutoBlocker.SwitchState.UNKNOWN,
+            unauthorizedApps = AutoBlocker.SwitchState.UNKNOWN,
+            usbCommands = AutoBlocker.SwitchState.UNKNOWN,
+            maximumRestrictions = AutoBlocker.SwitchState.UNKNOWN,
+        )
+        val steps = SetupPlan.steps(snap(autoBlocker = unread))
+        val step = steps.first { it.id == SetupPlan.StepId.AUTO_BLOCKER }
+        assertFalse(step.done)
+        assertTrue(step.manualCheck)
+    }
+
+    @Test
+    fun autoBlocker_doneWhenTheAffectingSwitchesAreOff_andSkipAdvances() {
+        val clear = blockingAutoBlocker().copy(
+            unauthorizedApps = AutoBlocker.SwitchState.OFF,
+            usbCommands = AutoBlocker.SwitchState.OFF,
+        )
+        val steps = SetupPlan.steps(
+            snap(fingerprint = true, accessibility = true, restrictedMode = SetupPlan.MODE_ALLOWED, autoBlocker = clear),
+        )
+        assertTrue(steps.first { it.id == SetupPlan.StepId.AUTO_BLOCKER }.done)
+        assertEquals(
+            SetupPlan.StepId.DEVICE_ADMIN,
+            SetupPlan.autoAdvanceTarget(steps, SetupPlan.StepId.ACCESSIBILITY),
+        )
+
+        val skipped = SetupPlan.steps(
+            snap(
+                fingerprint = true,
+                accessibility = true,
+                restrictedMode = SetupPlan.MODE_ALLOWED,
+                skipped = setOf(SetupPlan.StepId.AUTO_BLOCKER),
+                autoBlocker = blockingAutoBlocker(),
+            ),
+        )
+        assertTrue(skipped.first { it.id == SetupPlan.StepId.AUTO_BLOCKER }.done)
+        assertFalse(skipped.first { it.id == SetupPlan.StepId.AUTO_BLOCKER }.manualCheck)
+        assertEquals(
+            SetupPlan.StepId.DEVICE_ADMIN,
+            SetupPlan.autoAdvanceTarget(skipped, SetupPlan.StepId.AUTO_BLOCKER),
+        )
+    }
+
+    @Test
+    fun autoAdvance_stopsOnAutoBlockerUntilItIsDone() {
+        val steps = SetupPlan.steps(
+            snap(
+                fingerprint = true,
+                accessibility = true,
+                restrictedMode = SetupPlan.MODE_ALLOWED,
+                autoBlocker = blockingAutoBlocker(),
+            ),
+        )
+        assertEquals(
+            SetupPlan.StepId.AUTO_BLOCKER,
+            SetupPlan.autoAdvanceTarget(steps, SetupPlan.StepId.ACCESSIBILITY),
+        )
+        assertNull(SetupPlan.autoAdvanceTarget(steps, SetupPlan.StepId.AUTO_BLOCKER))
     }
 
     @Test

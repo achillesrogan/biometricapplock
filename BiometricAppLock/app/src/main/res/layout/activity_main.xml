@@ -153,7 +153,35 @@
                         android:contentDescription="@string/uninstall_protection_title" />
                 </LinearLayout>
 
+                <LinearLayout
+                    android:id="@+id/uninstallDisclaimerSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/uninstallDisclaimerSummaryText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/uninstall_protection_summary"
+                        android:textAppearance="?attr/textAppearanceBodySmall" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/uninstallDisclaimerDetails"
+                        style="?attr/borderlessButtonStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
+                        android:text="@string/uninstall_protection_details" />
+                </LinearLayout>
+
                 <TextView
+                    android:id="@+id/uninstallDisclaimerBody"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
@@ -213,5 +241,21 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center" />
         </FrameLayout>
+
+        <TextView
+            android:id="@+id/creditFooter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/credit_footer_description"
+            android:filterTouchesWhenObscured="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="@string/credit_footer"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?android:attr/textColorSecondary" />
     </LinearLayout>
 </FrameLayout>

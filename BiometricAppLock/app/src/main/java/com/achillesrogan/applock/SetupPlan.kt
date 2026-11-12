@@ -21,6 +21,7 @@ object SetupPlan {
         FINGERPRINT,
         RESTRICTED_SETTINGS,
         ACCESSIBILITY,
+        AUTO_BLOCKER,
         DEVICE_ADMIN,
         BATTERY,
     }
@@ -38,17 +39,20 @@ object SetupPlan {
         val deviceAdminActive: Boolean,
         val batteryUnrestricted: Boolean,
         val skipped: Set<StepId> = emptySet(),
+        val autoBlocker: AutoBlocker.Reading = AutoBlocker.Reading.ABSENT,
     )
 
     data class Step(
         val id: StepId,
         val requirement: Requirement,
         val done: Boolean,
+        /** True when the step is showing and its on/off state could not be read. */
+        val manualCheck: Boolean = false,
     )
 
     fun requirement(id: StepId): Requirement = when (id) {
         StepId.FINGERPRINT, StepId.RESTRICTED_SETTINGS, StepId.ACCESSIBILITY -> Requirement.REQUIRED
-        StepId.DEVICE_ADMIN, StepId.BATTERY -> Requirement.OPTIONAL
+        StepId.AUTO_BLOCKER, StepId.DEVICE_ADMIN, StepId.BATTERY -> Requirement.OPTIONAL
     }
 
     /**
@@ -73,6 +77,13 @@ object SetupPlan {
             ),
             Step(StepId.ACCESSIBILITY, Requirement.REQUIRED, snapshot.accessibilityEnabled),
             Step(
+                StepId.AUTO_BLOCKER,
+                Requirement.OPTIONAL,
+                done = AutoBlocker.clear(snapshot.autoBlocker) || StepId.AUTO_BLOCKER in snapshot.skipped,
+                manualCheck = AutoBlocker.needsManualCheck(snapshot.autoBlocker) &&
+                    StepId.AUTO_BLOCKER !in snapshot.skipped,
+            ),
+            Step(
                 StepId.DEVICE_ADMIN,
                 Requirement.OPTIONAL,
                 snapshot.deviceAdminActive || StepId.DEVICE_ADMIN in snapshot.skipped,
@@ -83,7 +94,13 @@ object SetupPlan {
                 snapshot.batteryUnrestricted || StepId.BATTERY in snapshot.skipped,
             ),
         )
-        return all.filter { it.id != StepId.RESTRICTED_SETTINGS || snapshot.sdkInt >= RESTRICTED_SETTINGS_SDK }
+        return all.filter { step ->
+            when (step.id) {
+                StepId.RESTRICTED_SETTINGS -> snapshot.sdkInt >= RESTRICTED_SETTINGS_SDK
+                StepId.AUTO_BLOCKER -> snapshot.autoBlocker.present
+                else -> true
+            }
+        }
     }
 
     fun nextIncomplete(steps: List<Step>): Step? = steps.firstOrNull { !it.done }

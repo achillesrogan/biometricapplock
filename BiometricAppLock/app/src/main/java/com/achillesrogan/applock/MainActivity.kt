@@ -1,6 +1,9 @@
 package com.achillesrogan.applock
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Paint
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -40,6 +43,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var banner: MaterialCardView
     private lateinit var reviewSetupButton: MaterialButton
     private lateinit var protectionSwitch: MaterialSwitch
+    private lateinit var disclaimerSummary: View
+    private lateinit var disclaimerBody: TextView
+    private lateinit var disclaimerDetails: MaterialButton
+    private lateinit var creditFooter: TextView
     private lateinit var lockedCount: TextView
     private lateinit var emptySearch: TextView
     private lateinit var progress: ProgressBar
@@ -53,6 +60,10 @@ class MainActivity : AppCompatActivity() {
     private var authInProgress = false
     private var updatingProtectionSwitch = false
     private var offeredSetup = false
+    private var disclaimerExpanded = false
+
+    /** Full explanation was on screen this visit. Recorded when the activity stops. */
+    private var showingFullDisclaimer = false
 
     private val enableAdminLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -61,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         offeredSetup = savedInstanceState?.getBoolean(STATE_OFFERED_SETUP) == true
+        disclaimerExpanded = savedInstanceState?.getBoolean(STATE_DISCLAIMER_EXPANDED) == true
         // Do not read an authenticated flag from savedInstanceState. Rotation and
         // process death must prompt again, and the lock list must not flash first.
         prepareEdgeToEdgeWindow()
@@ -82,7 +94,6 @@ class MainActivity : AppCompatActivity() {
         appList = findViewById(R.id.appList)
         appList.layoutManager = LinearLayoutManager(this)
         appList.adapter = adapter
-        applyWindowInsets()
         findViewById<MaterialButton>(R.id.openSettingsButton).setOnClickListener {
             startActivity(Intent(this, SetupActivity::class.java))
         }
@@ -92,6 +103,17 @@ class MainActivity : AppCompatActivity() {
         }
         protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
         protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
+        disclaimerSummary = findViewById(R.id.uninstallDisclaimerSummary)
+        disclaimerBody = findViewById(R.id.uninstallDisclaimerBody)
+        disclaimerDetails = findViewById(R.id.uninstallDisclaimerDetails)
+        disclaimerDetails.setOnClickListener {
+            disclaimerExpanded = !disclaimerExpanded
+            refreshDisclaimer()
+        }
+        creditFooter = findViewById(R.id.creditFooter)
+        creditFooter.paintFlags = creditFooter.paintFlags or Paint.UNDERLINE_TEXT_FLAG
+        creditFooter.setOnClickListener { openCredit() }
+        applyWindowInsets()
         findViewById<TextInputEditText>(R.id.searchInput).doAfterTextChanged {
             query = it?.toString().orEmpty()
             applyFilter()
@@ -114,6 +136,7 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(STATE_OFFERED_SETUP, offeredSetup)
+        outState.putBoolean(STATE_DISCLAIMER_EXPANDED, disclaimerExpanded)
     }
 
     override fun onResume() {
@@ -138,9 +161,15 @@ class MainActivity : AppCompatActivity() {
         }
         refreshSetupEntry()
         refreshProtectionSwitch()
+        refreshDisclaimer()
     }
 
     override fun onStop() {
+        // The next visit collapses the explanation. A biometric prompt pauses this
+        // activity before the list is shown, so this is recorded here rather than
+        // the moment the text is bound.
+        if (showingFullDisclaimer) SetupStatus.markDisclaimerSeen(this)
+        showingFullDisclaimer = false
         super.onStop()
         // Re-lock whenever this screen leaves the foreground, including rotation.
         // Hiding here means the lock list is already gone when the window is shown again.
@@ -187,6 +216,7 @@ class MainActivity : AppCompatActivity() {
                 content.visibility = View.VISIBLE
                 refreshSetupEntry()
                 refreshProtectionSwitch()
+                refreshDisclaimer()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
                 }
@@ -233,6 +263,7 @@ class MainActivity : AppCompatActivity() {
         val gateHorizontal = authGate.paddingLeft
         val gateVertical = authGate.paddingTop
         val listBottom = appList.paddingBottom
+        val creditBottom = creditFooter.paddingBottom
         findViewById<View>(R.id.root).listenForBarPadding { bars ->
             authGate.setPadding(
                 gateHorizontal + bars.left,
@@ -241,7 +272,44 @@ class MainActivity : AppCompatActivity() {
                 gateVertical + bars.bottom,
             )
             content.setPadding(contentHorizontal + bars.left, contentTop + bars.top, contentHorizontal + bars.right, 0)
-            appList.updatePadding(bottom = listBottom + bars.bottom)
+            appList.updatePadding(bottom = listBottom)
+            creditFooter.updatePadding(bottom = creditBottom + bars.bottom)
+        }
+    }
+
+    /**
+     * Full text until the user has left the screen after seeing it, or once
+     * required setup is done. Details puts the full text back.
+     */
+    private fun refreshDisclaimer() {
+        if (content.visibility != View.VISIBLE) return
+        val collapse = UninstallDisclaimer.collapsed(
+            setupComplete = SetupStatus.requiredComplete(this),
+            seen = SetupStatus.disclaimerSeen(this),
+        )
+        if (!collapse) {
+            showingFullDisclaimer = true
+            disclaimerSummary.visibility = View.GONE
+            disclaimerBody.visibility = View.VISIBLE
+            return
+        }
+        disclaimerSummary.visibility = View.VISIBLE
+        disclaimerBody.visibility = if (disclaimerExpanded) View.VISIBLE else View.GONE
+        disclaimerDetails.setText(
+            if (disclaimerExpanded) R.string.uninstall_protection_hide else R.string.uninstall_protection_details,
+        )
+    }
+
+    private fun openCredit() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(Credit.URL))
+        try {
+            if (intent.resolveActivity(packageManager) == null) {
+                Toast.makeText(this, R.string.credit_no_browser, Toast.LENGTH_LONG).show()
+                return
+            }
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.credit_no_browser, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -353,5 +421,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val STATE_OFFERED_SETUP = "offered_setup"
+        private const val STATE_DISCLAIMER_EXPANDED = "disclaimer_expanded"
     }
 }
