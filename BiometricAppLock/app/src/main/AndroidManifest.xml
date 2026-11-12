@@ -51,6 +51,17 @@
         <intent>
             <action android:name="android.settings.SETTINGS" />
         </intent>
+        <!-- Best-effort deep link. Missing on some builds; setup then opens Security settings. -->
+        <intent>
+            <action android:name="com.samsung.android.settings.AUTO_BLOCKER_SETTINGS" />
+        </intent>
+        <!-- So a Samsung phone can see the Auto Blocker package when the One UI version cannot be read. -->
+        <package android:name="com.samsung.android.rampart" />
+        <!-- Credit footer. Visibility only; the app does not request INTERNET. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application

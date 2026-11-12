@@ -108,10 +108,10 @@ class SetupActivity : AppCompatActivity() {
         row.alpha = 1f
         marker.text = number.toString()
         state.setText(
-            if (step.requirement == SetupPlan.Requirement.REQUIRED) {
-                R.string.setup_state_needed
-            } else {
-                R.string.setup_state_optional
+            when {
+                step.manualCheck -> R.string.setup_state_check
+                step.requirement == SetupPlan.Requirement.REQUIRED -> R.string.setup_state_needed
+                else -> R.string.setup_state_optional
             },
         )
         if (!current) {
@@ -122,7 +122,7 @@ class SetupActivity : AppCompatActivity() {
         }
 
         detail.visibility = View.VISIBLE
-        detail.setText(detailFor(step.id))
+        detail.text = detailText(step.id)
         open.visibility = View.VISIBLE
         open.setText(buttonFor(step.id))
         open.setOnClickListener { openStep(step.id) }
@@ -137,6 +137,7 @@ class SetupActivity : AppCompatActivity() {
             SetupPlan.StepId.FINGERPRINT -> snapshot.fingerprintReady
             SetupPlan.StepId.RESTRICTED_SETTINGS -> !SetupPlan.restrictedSettingsBlocked(snapshot)
             SetupPlan.StepId.ACCESSIBILITY -> snapshot.accessibilityEnabled
+            SetupPlan.StepId.AUTO_BLOCKER -> AutoBlocker.clear(snapshot.autoBlocker)
             SetupPlan.StepId.DEVICE_ADMIN -> snapshot.deviceAdminActive
             SetupPlan.StepId.BATTERY -> snapshot.batteryUnrestricted
         }
@@ -161,22 +162,50 @@ class SetupActivity : AppCompatActivity() {
         SetupPlan.StepId.FINGERPRINT -> R.string.setup_fingerprint_title
         SetupPlan.StepId.RESTRICTED_SETTINGS -> R.string.setup_restricted_title
         SetupPlan.StepId.ACCESSIBILITY -> R.string.setup_accessibility_title
+        SetupPlan.StepId.AUTO_BLOCKER -> R.string.setup_autoblocker_title
         SetupPlan.StepId.DEVICE_ADMIN -> R.string.setup_admin_title
         SetupPlan.StepId.BATTERY -> R.string.setup_battery_title
+    }
+
+    private fun detailText(id: SetupPlan.StepId): CharSequence {
+        if (id != SetupPlan.StepId.AUTO_BLOCKER) return getString(detailFor(id))
+        return AutoBlocker.detail(SetupStatus.snapshot(this).autoBlocker)
+            .joinToString("\n\n") { getString(detailLine(it)) }
     }
 
     private fun detailFor(id: SetupPlan.StepId): Int = when (id) {
         SetupPlan.StepId.FINGERPRINT -> R.string.setup_fingerprint_detail
         SetupPlan.StepId.RESTRICTED_SETTINGS -> R.string.setup_restricted_detail
         SetupPlan.StepId.ACCESSIBILITY -> R.string.setup_accessibility_detail
+        SetupPlan.StepId.AUTO_BLOCKER -> R.string.setup_autoblocker_unread
         SetupPlan.StepId.DEVICE_ADMIN -> R.string.setup_admin_detail
         SetupPlan.StepId.BATTERY -> R.string.setup_battery_detail
+    }
+
+    private fun detailLine(line: AutoBlocker.DetailLine): Int = when (line) {
+        AutoBlocker.DetailLine.UNREAD_ALL -> R.string.setup_autoblocker_unread
+        AutoBlocker.DetailLine.MAIN_ON -> R.string.setup_autoblocker_main_on
+        AutoBlocker.DetailLine.MAIN_OFF_CONFLICT -> R.string.setup_autoblocker_main_conflict
+        AutoBlocker.DetailLine.MAIN_UNREAD -> R.string.setup_autoblocker_main_unread
+        AutoBlocker.DetailLine.SIDELOAD_ON -> R.string.setup_autoblocker_sideload_on
+        AutoBlocker.DetailLine.SIDELOAD_OFF -> R.string.setup_autoblocker_sideload_off
+        AutoBlocker.DetailLine.SIDELOAD_UNREAD -> R.string.setup_autoblocker_sideload_unread
+        AutoBlocker.DetailLine.USB_ON -> R.string.setup_autoblocker_usb_on
+        AutoBlocker.DetailLine.USB_OFF -> R.string.setup_autoblocker_usb_off
+        AutoBlocker.DetailLine.USB_UNREAD -> R.string.setup_autoblocker_usb_unread
+        AutoBlocker.DetailLine.MAX_ON -> R.string.setup_autoblocker_max_on
+        AutoBlocker.DetailLine.MAX_OFF -> R.string.setup_autoblocker_max_off
+        AutoBlocker.DetailLine.MAX_UNREAD -> R.string.setup_autoblocker_max_unread
+        AutoBlocker.DetailLine.MAX_ABSENT -> R.string.setup_autoblocker_max_absent
+        AutoBlocker.DetailLine.LEAVE_REST -> R.string.setup_autoblocker_rest
+        AutoBlocker.DetailLine.WHERE -> R.string.setup_autoblocker_where
     }
 
     private fun buttonFor(id: SetupPlan.StepId): Int = when (id) {
         SetupPlan.StepId.FINGERPRINT -> R.string.setup_fingerprint_button
         SetupPlan.StepId.RESTRICTED_SETTINGS -> R.string.setup_restricted_button
         SetupPlan.StepId.ACCESSIBILITY -> R.string.setup_accessibility_button
+        SetupPlan.StepId.AUTO_BLOCKER -> R.string.setup_autoblocker_button
         SetupPlan.StepId.DEVICE_ADMIN -> R.string.setup_admin_button
         SetupPlan.StepId.BATTERY -> R.string.setup_battery_button
     }

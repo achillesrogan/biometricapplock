@@ -4,6 +4,14 @@ Biometric App Lock can be set up on the phone without these commands. This page 
 
 Install the APK first (`adb install -r path/to/the.apk` upgrades an existing install). Then run the commands you need. Each section has the command that turns the setting on and the command that turns it off.
 
+Galaxy phones on One UI 6 and newer have Auto Blocker under Settings → Security and privacy → Auto Blocker. Leave it on unless one of these is stopping the command you are running:
+
+- **Block apps from unauthorized sources** stops `adb install` and an APK file install. Galaxy Store and Play Store installs are not blocked. Turn it off only while you install or update, then turn it back on. App locking does not need it off.
+- **Block commands by USB cable** stops the `adb shell` commands on this page. Turn it off only while you use them. Setup done on the phone does not need it off.
+- **Maximum restrictions** (One UI 6.1.1 and newer, off unless you turn it on) blocks activating a device administrator, so the device-admin command below fails until that switch is off. The other items under Maximum restrictions do not affect this app.
+
+Malware-image blocking and app scans can stay on. The app's setup screen explains the same limits and opens the Auto Blocker screen when it can.
+
 Installing from F-Droid, IzzyOnDroid, or Obtainium usually does **not** set Android’s restricted-settings flag, so the accessibility switch is not greyed out. A file install or `adb install` on Android 13 and newer often does set that flag.
 
 ## Allow restricted settings (Android 13 and newer)
