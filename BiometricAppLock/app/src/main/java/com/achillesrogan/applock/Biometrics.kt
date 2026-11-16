@@ -41,6 +41,34 @@ object Biometrics {
 
     fun isAvailable(context: Context) = status(context) == BiometricManager.BIOMETRIC_SUCCESS
 
+    /**
+     * True when a strong biometric is enrolled but the keystore key cannot be used.
+     * Repair replaces that key. It does not clear locked apps or app storage.
+     */
+    fun isKeyBroken(context: Context): Boolean {
+        if (!isAvailable(context)) return false
+        return try {
+            synchronized(cryptoLock) { initCipher() }
+            false
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    fun repairKey(context: Context): Boolean {
+        if (!isAvailable(context)) return false
+        return try {
+            synchronized(cryptoLock) {
+                deleteKey()
+                setRearmPending(context, true)
+                initCipher()
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** Human-readable reason biometrics can't be used, or null if they can. */
     fun unavailableReason(context: Context): String? = when (status(context)) {
         BiometricManager.BIOMETRIC_SUCCESS -> null

@@ -2,7 +2,6 @@ package com.achillesrogan.applock
 
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.accessibility.AccessibilityWindowInfo
 
 /**
  * Looks only at view ids on launcher and SystemUI windows. It does not read
@@ -17,29 +16,33 @@ internal object OverviewScanner {
      * one of those windows was seen and none of them had a visible overview id.
      */
     fun isOverviewVisible(service: AccessibilityService): Boolean? {
-        val windows = service.windows ?: return null
-        if (windows.isEmpty()) return null
-        var sawHost = false
-        var found = false
-        try {
-            for (window in windows) {
-                if (found) break
-                val root = window.root ?: continue
-                try {
+        return try {
+            val windows = service.windows ?: return null
+            if (windows.isEmpty()) return null
+            var sawHost = false
+            var found = false
+            try {
+                for (window in windows) {
+                    if (found) break
+                    val root = try {
+                        window.root
+                    } catch (e: Exception) {
+                        null
+                    } ?: continue
                     val pkg = root.packageName?.toString().orEmpty()
                     val className = root.className?.toString().orEmpty()
                     if (!RecentsDetector.mayHostOverview(pkg, className)) continue
                     sawHost = true
                     if (containsVisibleOverview(root)) found = true
-                } finally {
-                    recycle(root)
                 }
+            } finally {
+                // Do not recycle. On Samsung One UI, recycle() on nodes from
+                // AccessibilityWindowInfo.root double-frees and kills the service.
             }
-        } finally {
-            for (window in windows) recycle(window)
+            if (!sawHost) null else found
+        } catch (e: Exception) {
+            null
         }
-        if (!sawHost) return null
-        return found
     }
 
     private fun containsVisibleOverview(node: AccessibilityNodeInfo): Boolean {
@@ -59,22 +62,8 @@ internal object OverviewScanner {
             } catch (e: Exception) {
                 null
             } ?: continue
-            try {
-                if (walk(child, seen, depth + 1)) return true
-            } finally {
-                recycle(child)
-            }
+            if (walk(child, seen, depth + 1)) return true
         }
         return false
-    }
-
-    private fun recycle(node: AccessibilityNodeInfo) {
-        @Suppress("DEPRECATION")
-        node.recycle()
-    }
-
-    private fun recycle(window: AccessibilityWindowInfo) {
-        @Suppress("DEPRECATION")
-        window.recycle()
     }
 }

@@ -26,10 +26,15 @@ internal class RecentsCover(
 
     fun isShowing(): Boolean = shown != null
 
-    fun show() {
-        if (shown != null) return
-        val wm = service.getSystemService(WindowManager::class.java) ?: return
-        val view = LayoutInflater.from(service).inflate(R.layout.recents_cover, null)
+    /** False when the overlay could not be attached. The caller should stop trying this session. */
+    fun show(): Boolean {
+        if (shown != null) return true
+        val wm = service.getSystemService(WindowManager::class.java) ?: return false
+        val view = try {
+            LayoutInflater.from(service).inflate(R.layout.recents_cover, null)
+        } catch (e: Exception) {
+            return false
+        }
         view.findViewById<View>(R.id.recentsCoverHome).setOnClickListener { onHome() }
         view.isFocusableInTouchMode = true
         view.setOnKeyListener { _, keyCode, event ->
@@ -60,12 +65,23 @@ internal class RecentsCover(
                 fitInsetsSides = 0
             }
         }
-        try {
+        return try {
             wm.addView(view, params)
-            view.requestFocus()
             shown = view
-        } catch (e: RuntimeException) {
-            // The accessibility token is not ready, or this build rejected the overlay.
+            try {
+                view.requestFocus()
+            } catch (e: Exception) {
+                // The overlay is up. Focus is only for the Home key.
+            }
+            true
+        } catch (e: Exception) {
+            shown = null
+            try {
+                wm.removeView(view)
+            } catch (ignored: Exception) {
+                // addView did not keep the view.
+            }
+            false
         }
     }
 
@@ -75,8 +91,8 @@ internal class RecentsCover(
         val wm = service.getSystemService(WindowManager::class.java) ?: return
         try {
             wm.removeView(view)
-        } catch (e: RuntimeException) {
-            // Already detached.
+        } catch (e: Exception) {
+            // Already detached, or the token died with the service.
         }
     }
 }
