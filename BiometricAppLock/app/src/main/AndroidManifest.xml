@@ -100,6 +100,15 @@
             android:taskAffinity="com.achillesrogan.applock.lockscreen"
             android:theme="@style/Theme.AppLock.Lock" />
 
+        <!-- Fingerprint gate over Recents. Own task, hidden from the overview it covers. -->
+        <activity
+            android:name=".RecentsAuthActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.achillesrogan.applock.recentsauth"
+            android:theme="@style/Theme.AppLock.RecentsAuth" />
+
         <receiver
             android:name=".AppDeviceAdminReceiver"
             android:description="@string/device_admin_explanation"

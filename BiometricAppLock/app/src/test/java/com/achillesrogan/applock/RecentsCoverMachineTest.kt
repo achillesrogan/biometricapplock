@@ -91,6 +91,26 @@ class RecentsCoverMachineTest {
     }
 
     @Test
+    fun clearAllThenOpenRecentsAgain_coversTheSecondTime() {
+        val first = RecentsCoverMachine.step(
+            RecentsCoverMachine.State(),
+            input(RecentsCoverMachine.Kind.RECENTS_CLASS, now = 0L, stricter = false),
+        )
+        assertEquals(RecentsCoverMachine.Phase.HOLDING, first.state.phase)
+        assertTrue(first.coverVisible)
+        val left = RecentsCoverMachine.step(first.state, nonHost(notes, now = 1_000L))
+        assertEquals(RecentsCoverMachine.Phase.IDLE, left.state.phase)
+        assertFalse(left.coverVisible)
+        val second = RecentsCoverMachine.step(
+            left.state,
+            input(RecentsCoverMachine.Kind.RECENTS_CLASS, now = 2_000L, stricter = false),
+        )
+        assertEquals(RecentsCoverMachine.Phase.HOLDING, second.state.phase)
+        assertTrue(second.coverVisible)
+        assertTrue(second.relock)
+    }
+
+    @Test
     fun differentNonLockedApp_dropsTheCoverImmediately() {
         val probing = RecentsCoverMachine.step(RecentsCoverMachine.State(), left(stricter = true, now = 0L)).state
         val maps = RecentsCoverMachine.step(probing, nonHost("com.example.maps", now = 50L))
@@ -249,6 +269,10 @@ class RecentsCoverMachineTest {
         assertFalse(RecentsGuard.stricterActive(hideEnabled = false, stricterStored = true))
         assertTrue(RecentsGuard.stricterActive(hideEnabled = true, stricterStored = true))
         assertFalse(RecentsGuard.stricterActive(hideEnabled = true, stricterStored = false))
+        assertFalse(RecentsGuard.fingerprintOrDefault(null))
+        assertFalse(RecentsGuard.fingerprintActive(hideEnabled = false, stored = true))
+        assertTrue(RecentsGuard.fingerprintActive(hideEnabled = true, stored = true))
+        assertFalse(RecentsGuard.fingerprintActive(hideEnabled = true, stored = false))
     }
 
     private fun left(stricter: Boolean, now: Long = 0L) = input(

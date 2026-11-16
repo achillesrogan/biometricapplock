@@ -24,6 +24,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var hideRecentsSwitch: MaterialSwitch
     private lateinit var stricterRecentsSwitch: MaterialSwitch
     private lateinit var stricterRecentsBlock: View
+    private lateinit var recentsFingerprintSwitch: MaterialSwitch
+    private lateinit var recentsFingerprintBlock: View
     private lateinit var disclaimerSummary: View
     private lateinit var disclaimerBody: TextView
     private lateinit var disclaimerDetails: MaterialButton
@@ -33,6 +35,7 @@ class SettingsActivity : AppCompatActivity() {
     private var updatingProtectionSwitch = false
     private var updatingHideRecents = false
     private var updatingStricterRecents = false
+    private var updatingRecentsFingerprint = false
     private var disclaimerExpanded = false
     private var showingFullDisclaimer = false
 
@@ -75,6 +78,12 @@ class SettingsActivity : AppCompatActivity() {
         stricterRecentsSwitch.setOnCheckedChangeListener { _, checked ->
             if (updatingStricterRecents || !authenticated) return@setOnCheckedChangeListener
             RecentsGuard.setStricter(this, checked)
+        }
+        recentsFingerprintSwitch = findViewById(R.id.recentsFingerprintSwitch)
+        recentsFingerprintBlock = findViewById(R.id.recentsFingerprintBlock)
+        recentsFingerprintSwitch.setOnCheckedChangeListener { _, checked ->
+            if (updatingRecentsFingerprint || !authenticated) return@setOnCheckedChangeListener
+            RecentsGuard.setFingerprint(this, checked)
         }
         disclaimerSummary = findViewById(R.id.uninstallDisclaimerSummary)
         disclaimerBody = findViewById(R.id.uninstallDisclaimerBody)
@@ -172,6 +181,19 @@ class SettingsActivity : AppCompatActivity() {
         val parentOn = hideRecentsSwitch.isChecked
         stricterRecentsSwitch.isEnabled = parentOn
         stricterRecentsBlock.alpha = if (parentOn) 1f else 0.45f
+        refreshRecentsFingerprintSwitch()
+    }
+
+    private fun refreshRecentsFingerprintSwitch() {
+        val stored = RecentsGuard.isFingerprintStored(this)
+        if (recentsFingerprintSwitch.isChecked != stored) {
+            updatingRecentsFingerprint = true
+            recentsFingerprintSwitch.isChecked = stored
+            updatingRecentsFingerprint = false
+        }
+        val parentOn = hideRecentsSwitch.isChecked
+        recentsFingerprintSwitch.isEnabled = parentOn
+        recentsFingerprintBlock.alpha = if (parentOn) 1f else 0.45f
     }
 
     private fun refreshProtectionSwitch() {

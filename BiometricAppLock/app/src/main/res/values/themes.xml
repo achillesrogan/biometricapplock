@@ -13,4 +13,12 @@
     <style name="Theme.AppLock.Lock" parent="Theme.AppLock">
         <item name="android:windowAnimationStyle">@null</item>
     </style>
+
+    <!-- Opaque on purpose: a translucent window lets Recents thumbnails show through on One UI. -->
+    <style name="Theme.AppLock.RecentsAuth" parent="Theme.AppLock">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowBackground">@color/recents_cover</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

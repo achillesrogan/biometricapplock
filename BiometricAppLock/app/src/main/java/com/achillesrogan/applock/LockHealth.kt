@@ -35,7 +35,11 @@ object RecentsScanGate {
         lastScanMs < 0L || nowMs - lastScanMs >= MIN_INTERVAL_MS
 }
 
-/** After the cover throws, stop using it for this process. App locking stays on. */
+/**
+ * A cover failure skips the rest of this overview. It does not survive the next
+ * one: [coverAllowed] is false only while [retired] is still set, and the service
+ * clears that on a new overview, screen off/on, and lock/unlock.
+ */
 object RecentsCoverSession {
     fun coverAllowed(retired: Boolean): Boolean = !retired
 }

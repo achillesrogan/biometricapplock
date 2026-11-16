@@ -24,11 +24,16 @@ internal class RecentsCover(
 ) {
     private var shown: View? = null
 
-    fun isShowing(): Boolean = shown != null
+    fun isShowing(): Boolean = shown?.isAttachedToWindow == true
 
     /** False when the overlay could not be attached. The caller should stop trying this session. */
     fun show(): Boolean {
-        if (shown != null) return true
+        val existing = shown
+        if (existing != null) {
+            if (existing.isAttachedToWindow) return true
+            // The window token died with the previous overview. Attach a new one.
+            shown = null
+        }
         val wm = service.getSystemService(WindowManager::class.java) ?: return false
         val view = try {
             LayoutInflater.from(service).inflate(R.layout.recents_cover, null)
@@ -83,6 +88,10 @@ internal class RecentsCover(
             }
             false
         }
+    }
+
+    fun discard() {
+        hide()
     }
 
     fun hide() {
