@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var banner: MaterialCardView
     private lateinit var reviewSetupButton: MaterialButton
     private lateinit var protectionSwitch: MaterialSwitch
+    private lateinit var hideRecentsSwitch: MaterialSwitch
     private lateinit var disclaimerSummary: View
     private lateinit var disclaimerBody: TextView
     private lateinit var disclaimerDetails: MaterialButton
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private var authenticated = false
     private var authInProgress = false
     private var updatingProtectionSwitch = false
+    private var updatingHideRecents = false
     private var offeredSetup = false
     private var disclaimerExpanded = false
 
@@ -103,6 +105,12 @@ class MainActivity : AppCompatActivity() {
         }
         protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
         protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
+        hideRecentsSwitch = findViewById(R.id.hideRecentsSwitch)
+        hideRecentsSwitch.setOnCheckedChangeListener { _, checked ->
+            if (updatingHideRecents || !authenticated) return@setOnCheckedChangeListener
+            RecentsGuard.setEnabled(this, checked)
+        }
+        refreshHideRecentsSwitch()
         disclaimerSummary = findViewById(R.id.uninstallDisclaimerSummary)
         disclaimerBody = findViewById(R.id.uninstallDisclaimerBody)
         disclaimerDetails = findViewById(R.id.uninstallDisclaimerDetails)
@@ -161,6 +169,7 @@ class MainActivity : AppCompatActivity() {
         }
         refreshSetupEntry()
         refreshProtectionSwitch()
+        refreshHideRecentsSwitch()
         refreshDisclaimer()
     }
 
@@ -216,6 +225,7 @@ class MainActivity : AppCompatActivity() {
                 content.visibility = View.VISIBLE
                 refreshSetupEntry()
                 refreshProtectionSwitch()
+                refreshHideRecentsSwitch()
                 refreshDisclaimer()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
@@ -317,6 +327,14 @@ class MainActivity : AppCompatActivity() {
         val needed = !SetupStatus.requiredComplete(this)
         banner.visibility = if (needed) View.VISIBLE else View.GONE
         reviewSetupButton.visibility = if (needed) View.GONE else View.VISIBLE
+    }
+
+    private fun refreshHideRecentsSwitch() {
+        val enabled = RecentsGuard.isEnabled(this)
+        if (hideRecentsSwitch.isChecked == enabled) return
+        updatingHideRecents = true
+        hideRecentsSwitch.isChecked = enabled
+        updatingHideRecents = false
     }
 
     private fun refreshProtectionSwitch() {

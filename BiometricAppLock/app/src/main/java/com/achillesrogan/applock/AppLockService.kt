@@ -32,8 +32,17 @@ class AppLockService : AccessibilityService() {
     private var recentSubject: String? = null
     private var recentSubjectAt = 0L
 
+    /** Class name already proved this is overview, so a late view-id miss does not drop the cover. */
+    private var classConfirmedOverview = false
+    private var coverShownAt = 0L
+
+    private val recentsCover = RecentsCover(this) {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+    }
+
     private val inspectAgain = Runnable { pendingWatch?.let { consider(it) } }
     private val inspectActiveLater = Runnable { inspectActive() }
+    private val overviewCheck = Runnable { checkOverviewNodes() }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -69,17 +78,45 @@ class AppLockService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val isWindow = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         val isClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+        val isWindows = event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        if (isWindows) {
+            // Window adds and removes do not mean overview closed. The app under
+            // the overview still has a window, and treating that as "left recents"
+            // would drop the cover. A real activity change handles leaving.
+            val pkg = event.packageName?.toString()
+            val className = event.className?.toString().orEmpty()
+            if (!RecentsGuard.isEnabled(this) || LockStore.lockedPackages(this).isEmpty()) {
+                if (recentsCover.isShowing() || classConfirmedOverview) clearOverview()
+                return
+            }
+            if (className.isNotEmpty() && RecentsDetector.classNameIsRecents(className)) {
+                classConfirmedOverview = true
+                showRecentsCover()
+                return
+            }
+            if (recentsCover.isShowing() || classConfirmedOverview ||
+                (pkg != null && RecentsDetector.shouldInspect(pkg, className))
+            ) {
+                scheduleOverviewChecks()
+            }
+            return
+        }
         if (!isWindow && !isClick) return
         val pkg = event.packageName?.toString() ?: return
+        val className = event.className?.toString().orEmpty()
+        if (isWindow) noteOverview(pkg, className)
         // Clicks are only useful on the system screens we already intend to read.
         if (isClick && pkg !in UninstallSignals.WATCHED_PACKAGES) return
         if (shouldIgnore(pkg)) return
+        // Overview is not an app the user opened. Don't treat it as the foreground,
+        // and don't launch the lock screen on top of the cover.
+        if (isWindow && overviewInFront(pkg, className)) return
 
-        val className = event.className?.toString().orEmpty()
         if (isWindow && isActivity(pkg, event.className)) {
             LockState.onForegroundChanged(pkg)
             if (pkg !in UninstallSignals.SETTINGS_PACKAGES) recentSubject = null
             if (LockStore.isLocked(this, pkg) && !LockState.isUnlocked(pkg)) {
+                if (recentsCover.isShowing()) return
                 showLockScreen(pkg)
                 return
             }
@@ -151,6 +188,88 @@ class AppLockService : AccessibilityService() {
         val pkg = recentSubject ?: return null
         if (SystemClock.elapsedRealtime() - recentSubjectAt > SUBJECT_HOLD_MS) return null
         return pkg
+    }
+
+    /**
+     * Recognizes overview and, when the setting is on and an app is locked,
+     * drops the in-memory unlock and covers the screen. View ids are checked
+     * a few times because Quickstep often reports the launcher activity before
+     * the overview panel is visible.
+     */
+    private fun noteOverview(pkg: String?, className: String) {
+        if (!RecentsGuard.isEnabled(this) || LockStore.lockedPackages(this).isEmpty()) {
+            clearOverview()
+            return
+        }
+        if (className.isNotEmpty() && RecentsDetector.classNameIsRecents(className)) {
+            classConfirmedOverview = true
+            showRecentsCover()
+            return
+        }
+        if (pkg != null && RecentsDetector.shouldInspect(pkg, className)) {
+            scheduleOverviewChecks()
+            return
+        }
+        // A normal app window means overview is gone. SystemUI shade and status-bar
+        // events are hosts, so they must not drop the cover.
+        if (pkg != null && pkg != packageName && recentsCover.isShowing() &&
+            !RecentsDetector.mayHostOverview(pkg, className)
+        ) {
+            clearOverview()
+        }
+    }
+
+    private fun overviewInFront(pkg: String, className: String): Boolean {
+        if (RecentsDetector.classNameIsRecents(className)) return true
+        return recentsCover.isShowing() && RecentsDetector.mayHostOverview(pkg, className)
+    }
+
+    private fun scheduleOverviewChecks() {
+        handler.removeCallbacks(overviewCheck)
+        handler.post(overviewCheck)
+        handler.postDelayed(overviewCheck, 120)
+        handler.postDelayed(overviewCheck, 360)
+        handler.postDelayed(overviewCheck, 700)
+    }
+
+    private fun checkOverviewNodes() {
+        if (!RecentsGuard.isEnabled(this) || LockStore.lockedPackages(this).isEmpty()) {
+            clearOverview()
+            return
+        }
+        val visible = try {
+            OverviewScanner.isOverviewVisible(this)
+        } catch (e: Exception) {
+            null
+        }
+        if (visible == null) return
+        if (visible) {
+            showRecentsCover()
+            return
+        }
+        // The same burst of checks that discovered the panel can also sample a
+        // frame where it is not visible yet. Hold a cover we just put up.
+        val held = coverShownAt != 0L && SystemClock.elapsedRealtime() - coverShownAt < 800
+        if (!classConfirmedOverview && recentsCover.isShowing() && !held) {
+            recentsCover.hide()
+            coverShownAt = 0L
+        }
+    }
+
+    private fun showRecentsCover() {
+        if (recentsCover.isShowing()) return
+        // Clear the unlock even if this build rejects the overlay, so the card
+        // cannot resume straight into the app.
+        LockState.relockAll()
+        recentsCover.show()
+        if (recentsCover.isShowing()) coverShownAt = SystemClock.elapsedRealtime()
+    }
+
+    private fun clearOverview() {
+        classConfirmedOverview = false
+        coverShownAt = 0L
+        handler.removeCallbacks(overviewCheck)
+        recentsCover.hide()
     }
 
     private fun showLockScreen(pkg: String) {
@@ -322,11 +441,13 @@ class AppLockService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         ProtectionController.dismissUnderlying = null
+        recentsCover.hide()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        recentsCover.hide()
         ProtectionController.dismissUnderlying = null
         runCatching { unregisterReceiver(screenReceiver) }
         super.onDestroy()
