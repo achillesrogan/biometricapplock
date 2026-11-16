@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Biometric App Lock</string>
-    <string name="accessibility_description">Detects when you open an app you have locked so Biometric App Lock can ask for your fingerprint. It reads which app is in the foreground. When Hide locked apps in Recents is on, it looks at launcher and SystemUI windows for overview view ids, not the text on the cards, and covers that screen. On package-installer, Settings, and device-admin screens it also reads the on-screen text to see if an uninstall, force stop, clear storage, or device-admin deactivation targets a locked app or Biometric App Lock. If you cancel the fingerprint prompt, it closes that system screen. It does not read what you type.</string>
+    <string name="accessibility_description">Detects when you open an app you have locked so Biometric App Lock can ask for your fingerprint. It reads which app is in the foreground. When Hide locked apps in Recents is on, it looks at launcher and SystemUI windows for overview view ids, not the text on the cards, and covers that screen. Stricter Recents cover, off unless you turn it on, covers as soon as you leave an unlocked locked app for one of those windows. On package-installer, Settings, and device-admin screens it also reads the on-screen text to see if an uninstall, force stop, clear storage, or device-admin deactivation targets a locked app or Biometric App Lock. If you cancel the fingerprint prompt, it closes that system screen. It does not read what you type.</string>
     <string name="service_off_title">Finish setup</string>
     <string name="service_off_body">A few system settings are still off. Setup opens each screen for you.</string>
     <string name="open_settings">Continue setup</string>
@@ -81,6 +81,8 @@
     <string name="uninstall_protection_body">When this is on, uninstalling a locked app or Biometric App Lock asks for your fingerprint. Force stop and clear storage for those apps ask too. Android also refuses to uninstall this app until its device administrator is turned off, and that screen asks for your fingerprint. The accessibility service has to be on for those prompts. Device administrator is used only to block uninstalling this app. It does not lock the phone, wipe data, or change other settings. Turning this switch off removes the device administrator. You have already confirmed your fingerprint to open this screen.</string>
     <string name="hide_recents_title">Hide locked apps in Recents</string>
     <string name="hide_recents_body">Covers the overview screen while any app is locked, so those previews stay hidden. Opening a locked app still asks for your fingerprint.</string>
+    <string name="stricter_recents_title">Stricter Recents cover</string>
+    <string name="stricter_recents_body">Covers the screen as soon as you leave an unlocked locked app for the launcher or SystemUI, then gets out of the way if that was Home. Off by default, because Home flashes dark for a moment. Does nothing while the switch above is off.</string>
     <string name="recents_cover_title">Recents is covered</string>
     <string name="recents_cover_body">Locked app previews stay hidden. Home leaves this screen. Opening a locked app still asks for your fingerprint.</string>
     <string name="recents_cover_home">Home</string>

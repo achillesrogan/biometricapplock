@@ -30,14 +30,10 @@ internal class RecentsCover(
         if (shown != null) return
         val wm = service.getSystemService(WindowManager::class.java) ?: return
         val view = LayoutInflater.from(service).inflate(R.layout.recents_cover, null)
-        view.findViewById<View>(R.id.recentsCoverHome).setOnClickListener {
-            hide()
-            onHome()
-        }
+        view.findViewById<View>(R.id.recentsCoverHome).setOnClickListener { onHome() }
         view.isFocusableInTouchMode = true
         view.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-                hide()
                 onHome()
                 true
             } else {

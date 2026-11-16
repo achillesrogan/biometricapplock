@@ -114,9 +114,10 @@ class RecentsDetectorTest {
 class RecentsGuardTest {
 
     @Test
-    fun missingPreference_isOn() {
+    fun missingPreference_isOn_andStricterIsOff() {
         assertTrue(RecentsGuard.enabledOrDefault(null))
         assertTrue(RecentsGuard.enabledOrDefault(true))
         assertFalse(RecentsGuard.enabledOrDefault(false))
+        assertFalse(RecentsGuard.stricterOrDefault(null))
     }
 }
