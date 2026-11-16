@@ -32,8 +32,26 @@ class AppLockService : AccessibilityService() {
     private var recentSubject: String? = null
     private var recentSubjectAt = 0L
 
+    private var coverState = RecentsCoverMachine.State()
+    private var lastClassIsRecents = false
+    private var lastWindowWasHost = false
+
+    private val recentsCover = RecentsCover(this) {
+        // Drop our state before going home, or the next launcher event shows the cover again.
+        dispatch(RecentsCoverMachine.Kind.DISABLED)
+        performGlobalAction(GLOBAL_ACTION_HOME)
+    }
+
     private val inspectAgain = Runnable { pendingWatch?.let { consider(it) } }
     private val inspectActiveLater = Runnable { inspectActive() }
+    private val overviewCheck = Runnable { dispatchNodes() }
+    private val coverWatchdog = Runnable {
+        if (coverState.phase == RecentsCoverMachine.Phase.IDLE) return@Runnable
+        dispatchNodes()
+        if (coverState.phase != RecentsCoverMachine.Phase.IDLE) {
+            apply(RecentsCoverMachine.step(coverState, coverInput(RecentsCoverMachine.Kind.WATCHDOG)))
+        }
+    }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -69,17 +87,29 @@ class AppLockService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val isWindow = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         val isClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+        val isWindows = event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        if (isWindows) {
+            // Do not treat the app still listed under the overview as "left recents".
+            // A host package here is still the earliest signal for the stricter cover.
+            noteOverview(event.packageName?.toString(), event.className?.toString().orEmpty(), fromWindowsChanged = true)
+            return
+        }
         if (!isWindow && !isClick) return
         val pkg = event.packageName?.toString() ?: return
+        val className = event.className?.toString().orEmpty()
+        if (isWindow) noteOverview(pkg, className, fromWindowsChanged = false)
         // Clicks are only useful on the system screens we already intend to read.
         if (isClick && pkg !in UninstallSignals.WATCHED_PACKAGES) return
         if (shouldIgnore(pkg)) return
+        // Overview is not an app the user opened. Don't treat it as the foreground,
+        // and don't launch the lock screen on top of the cover.
+        if (isWindow && overviewInFront(pkg, className)) return
 
-        val className = event.className?.toString().orEmpty()
         if (isWindow && isActivity(pkg, event.className)) {
             LockState.onForegroundChanged(pkg)
             if (pkg !in UninstallSignals.SETTINGS_PACKAGES) recentSubject = null
             if (LockStore.isLocked(this, pkg) && !LockState.isUnlocked(pkg)) {
+                if (recentsCover.isShowing()) return
                 showLockScreen(pkg)
                 return
             }
@@ -151,6 +181,134 @@ class AppLockService : AccessibilityService() {
         val pkg = recentSubject ?: return null
         if (SystemClock.elapsedRealtime() - recentSubjectAt > SUBJECT_HOLD_MS) return null
         return pkg
+    }
+
+    /**
+     * Recognizes overview. Stricter mode also covers the moment a locked app
+     * is left for any launcher or SystemUI window, then the state machine
+     * takes that cover down if the user landed on Home or another app.
+     */
+    private fun noteOverview(pkg: String?, className: String, fromWindowsChanged: Boolean) {
+        if (pkg == packageName || (pkg != null && pkg in keyboardPackages())) return
+        lastClassIsRecents = className.isNotEmpty() && RecentsDetector.classNameIsRecents(className)
+        lastWindowWasHost = lastClassIsRecents ||
+            (pkg != null && RecentsDetector.mayHostOverview(pkg, className))
+        val hideOn = RecentsGuard.isEnabled(this) && LockStore.lockedPackages(this).isNotEmpty()
+        if (!hideOn) {
+            dispatch(RecentsCoverMachine.Kind.DISABLED)
+            return
+        }
+        val foreground = LockState.foreground()
+        if (RecentsCoverMachine.leavingUnlockedLockedApp(
+                stricter = RecentsGuard.isStricter(this),
+                hideEnabled = true,
+                foregroundPkg = foreground,
+                foregroundIsLocked = foreground != null && LockStore.isLocked(this, foreground),
+                foregroundIsUnlocked = foreground != null && LockState.isUnlocked(foreground),
+                newPkg = pkg,
+                newClass = className,
+                ownPkg = packageName,
+            )
+        ) {
+            dispatch(RecentsCoverMachine.Kind.LEFT_UNLOCKED_LOCKED_FOR_HOST)
+        }
+        if (lastClassIsRecents) {
+            dispatch(RecentsCoverMachine.Kind.RECENTS_CLASS)
+            return
+        }
+        if (pkg != null && RecentsDetector.shouldInspect(pkg, className)) {
+            dispatch(RecentsCoverMachine.Kind.HOST_SIGNAL)
+            return
+        }
+        if (fromWindowsChanged && pkg == null && coverState.phase != RecentsCoverMachine.Phase.IDLE) {
+            dispatch(RecentsCoverMachine.Kind.HOST_SIGNAL)
+            return
+        }
+        // Window adds under the overview are not "the user opened another app".
+        if (!fromWindowsChanged && pkg != null && coverState.phase != RecentsCoverMachine.Phase.IDLE &&
+            !RecentsDetector.mayHostOverview(pkg, className)
+        ) {
+            dispatch(RecentsCoverMachine.Kind.NON_HOST_APP, nonHostPkg = pkg)
+        }
+    }
+
+    private fun overviewInFront(pkg: String, className: String): Boolean {
+        if (RecentsDetector.classNameIsRecents(className)) return true
+        return coverState.phase != RecentsCoverMachine.Phase.IDLE &&
+            RecentsDetector.mayHostOverview(pkg, className)
+    }
+
+    private fun scheduleOverviewChecks() {
+        handler.removeCallbacks(overviewCheck)
+        for (delay in RecentsCoverMachine.PROBE_CHECK_DELAYS_MS) {
+            handler.postDelayed(overviewCheck, delay)
+        }
+    }
+
+    private fun dispatchNodes() {
+        refreshActiveClass()
+        val visible = try {
+            OverviewScanner.isOverviewVisible(this)
+        } catch (e: Exception) {
+            null
+        }
+        dispatch(RecentsCoverMachine.Kind.NODES, nodesVisible = visible)
+    }
+
+    /** Package and class only, so a missed leave event cannot keep a stale "this is recents" flag. */
+    private fun refreshActiveClass() {
+        val root = rootInActiveWindow ?: return
+        try {
+            val className = root.className?.toString().orEmpty()
+            val pkg = root.packageName?.toString()
+            if (pkg == packageName) return
+            lastClassIsRecents = RecentsDetector.classNameIsRecents(className)
+            lastWindowWasHost = lastClassIsRecents ||
+                (pkg != null && RecentsDetector.mayHostOverview(pkg, className))
+        } catch (e: Exception) {
+            // The active window can disappear between the null check and the read.
+        } finally {
+            @Suppress("DEPRECATION")
+            root.recycle()
+        }
+    }
+
+    private fun dispatch(kind: RecentsCoverMachine.Kind, nodesVisible: Boolean? = null, nonHostPkg: String? = null) {
+        apply(RecentsCoverMachine.step(coverState, coverInput(kind, nodesVisible, nonHostPkg)))
+    }
+
+    private fun coverInput(
+        kind: RecentsCoverMachine.Kind,
+        nodesVisible: Boolean? = null,
+        nonHostPkg: String? = null,
+    ) = RecentsCoverMachine.Input(
+        nowMs = SystemClock.elapsedRealtime(),
+        kind = kind,
+        stricter = RecentsGuard.isStricter(this),
+        hideEnabled = RecentsGuard.isEnabled(this) && LockStore.lockedPackages(this).isNotEmpty(),
+        nodesVisible = nodesVisible,
+        currentClassIsRecents = lastClassIsRecents,
+        foregroundPkg = LockState.foreground(),
+        nonHostPkg = nonHostPkg,
+    )
+
+    private fun apply(effect: RecentsCoverMachine.Effect) {
+        val wasUp = coverState.phase != RecentsCoverMachine.Phase.IDLE
+        coverState = effect.state
+        handler.removeCallbacks(coverWatchdog)
+        effect.watchdogInMs?.takeIf { it > 0L }?.let { handler.postDelayed(coverWatchdog, it) }
+        if (!effect.coverVisible) handler.removeCallbacks(overviewCheck)
+        if (effect.scheduleBurst) scheduleOverviewChecks()
+        if (effect.relock) LockState.relockAll()
+        if (effect.coverVisible) recentsCover.show() else recentsCover.hide()
+        if (effect.lockForegroundIfNeeded && wasUp && !lastWindowWasHost) {
+            val fg = LockState.foreground()
+            if (fg != null && LockStore.isLocked(this, fg) && !LockState.isUnlocked(fg) &&
+                !recentsCover.isShowing()
+            ) {
+                showLockScreen(fg)
+            }
+        }
     }
 
     private fun showLockScreen(pkg: String) {
@@ -322,11 +480,13 @@ class AppLockService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         ProtectionController.dismissUnderlying = null
+        recentsCover.hide()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        recentsCover.hide()
         ProtectionController.dismissUnderlying = null
         runCatching { unregisterReceiver(screenReceiver) }
         super.onDestroy()

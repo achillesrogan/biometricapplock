@@ -6,14 +6,16 @@ Package name: `com.achillesrogan.applock`. Repository: https://github.com/achill
 
 Previously named Fingerprint App Lock (v1.2 and earlier); same package ID and signing certificate.
 
-Current version: **1.5** (versionCode 6).
+Current version: **1.6** (versionCode 7).
 
 ## Features
 
 - Locks chosen apps behind a **strong** (class 3) biometric, typically a fingerprint. The prompt is AndroidX `BiometricPrompt` with `BIOMETRIC_STRONG` only. A device PIN, pattern, or password is not an unlock method.
 - The prompt is bound to an Android Keystore AES key through `BiometricPrompt.CryptoObject`. The app continues only after `Cipher.doFinal` succeeds. The key requires authentication on every use, and enrolling or removing a biometric invalidates it (`setInvalidatedByBiometricEnrollment`).
 - **Fails closed.** If no strong biometric is enrolled, or the sensor is unavailable, the settings list stays hidden and a locked app stays covered.
-- `FLAG_SECURE` on the settings screen and the lock screen, so those windows are left out of screenshots and the Recents preview.
+- `FLAG_SECURE` on the settings screen, the setup screen, the lock screen, and the Recents cover, so those windows are left out of screenshots and this app’s own Recents preview.
+- **Hide locked apps in Recents** (version 1.6, on by default). While any app is locked, opening the overview screen covers it with an opaque accessibility overlay. The unlock for the app you just left is cleared, so opening it again asks for a fingerprint. Home on the cover leaves the overview. The switch is on the main screen.
+- **Stricter Recents cover** (version 1.6, off by default). Only applies while the switch above is on. It covers the screen the moment you leave an unlocked locked app for the launcher or SystemUI, before overview is confirmed, then removes the cover if that stop was Home or another app. Home flashes dark for a moment, which is why it starts off.
 - `filterTouchesWhenObscured` on both screens, so a touch that passes through another window cannot flip a lock switch or press the unlock button.
 - Search at the top of the app list. It filters live, case-insensitively, by app name and package name. Lock switches keep the real saved state while the list is filtered. A search with no hits shows an empty state. The field is inside the authenticated content and is hidden until biometric auth succeeds.
 - The list opens with locked apps first, then the others. Each group is alphabetical in the phone’s locale, ignoring case. Turning a lock on or off leaves that row where it is until the next time the list loads.
@@ -45,7 +47,7 @@ This repository does not attach release binaries yet. When a file is published (
    A checksum only matches the exact file it was generated for. An APK you build yourself will have a different hash.
 
 2. Allow installation from that source if Android asks. On Android 8 and newer this is per-app: the browser or file manager needs **Install unknown apps**.
-3. Open the APK and install it. Version 1.5 (versionCode 6) uses application id `com.achillesrogan.applock`. It installs in place over 1.4. It does not replace the 1.0 or 1.1 test installs, which used a different application id.
+3. Open the APK and install it. Version 1.6 (versionCode 7) uses application id `com.achillesrogan.applock`. It installs in place over 1.5. It does not replace the 1.0 or 1.1 test installs, which used a different application id.
 4. Open **Biometric App Lock**. Setup opens each system screen for you, one at a time: a fingerprint if you still need one, **Allow restricted settings** when Android has greyed out the accessibility switch, the accessibility service, Samsung Auto Blocker on a Galaxy phone with One UI 6 or newer, uninstall protection, then battery. Come back after each one and the next screen opens. You can reopen the list later with **Review setup**.
    - On Android 13 and newer, a file install often greys out the accessibility switch until you allow restricted settings. Setup sends you to the app info screen first and tells you to tap the ⋮ menu. Installing from F-Droid, IzzyOnDroid, or Obtainium usually does not set that flag. The same steps can be done from a computer: [docs/ADB_SETUP.md](docs/ADB_SETUP.md).
    - On a Galaxy phone with One UI 6 or newer, setup includes Auto Blocker. It does not ask you to turn Auto Blocker off. Block apps from unauthorized sources stops an APK install or update (Galaxy Store and Play Store installs are not blocked). Block commands by USB cable stops the computer setup commands. Maximum restrictions, on One UI 6.1.1 and newer, blocks device administrator, so uninstall protection cannot be turned on until that switch is off. App locking works with the rest of Auto Blocker left on. If the app cannot read a switch, that step is labeled Manual check. Other phones do not show the step.
@@ -58,15 +60,15 @@ This repository does not attach release binaries yet. When a file is published (
 |---|---|
 | `MainActivity` | Lists launchable apps and a switch for each. Hidden until strong biometric auth succeeds. Includes search, the uninstall-protection switch (its explanation collapses after the first view, or once setup is done), a credit link, and a way back into setup. |
 | `SetupActivity` | Checklist that opens each system setting the app needs. Rechecks when you return and opens the next unfinished step. |
-| `AppLockService` | Accessibility service. For ordinary apps it only uses the package name of the window that came to the front. For package-installer and Settings windows it can read on-screen text to see if an action targets a protected app. |
+| `AppLockService` | Accessibility service. For ordinary apps it only uses the package name of the window that came to the front. For package-installer and Settings windows it can read on-screen text to see if an action targets a protected app. When Hide locked apps in Recents is on, it also recognizes the overview screen and covers it. |
 | `LockActivity` | Full-screen cover over a locked app, or over a protected uninstall / force-stop / clear-storage / device-admin screen. Cancel and Back go to the home screen. If the biometric is unavailable, the cover stays up and the action does not proceed. |
 | `Biometrics` | Creates the Keystore key and runs the `CryptoObject` prompt. There is no device PIN, pattern, or password fallback. |
 | `LockStore` | Saves the set of locked package names in app-private `SharedPreferences`. |
-| `LockState` | In-memory set of apps unlocked right now. An app locks again when you leave it, or when the screen turns off. Also remembers that an uninstall-protection prompt is already showing. |
+| `LockState` | In-memory set of apps unlocked right now. An app locks again when you leave it, when the screen turns off, or when the overview cover appears. Also remembers that an uninstall-protection prompt is already showing. |
 | `DeviceAdmin` / `AppDeviceAdminReceiver` | Device administrator used only so Android refuses to uninstall this app. `onDisableRequested` returns a short warning. Turning the in-app switch off calls `removeActiveAdmin`. |
 | `UninstallSignals` | Pure check: given the package, class, and text of a system window, decide whether it is a protected action. If the target is not clear, it does not block. |
 
-The service ignores this app’s own windows, the system UI, and the keyboard, so the lock screen and the IME are not treated as “leaving” the locked app.
+The service ignores this app’s own windows, the keyboard, and SystemUI windows that are not the overview, so the lock screen and the IME are not treated as “leaving” the locked app. The overview screen is the exception: it is covered, and the app you left is locked again.
 
 Uninstall protection is the device-administrator switch. It is off until you accept that screen. While it is on, the protected targets are every locked package plus this app. A successful fingerprint allows that package’s confirmation for about 60 seconds so you can press the system button. The screen turning off clears that allowance and, if a protected confirmation is still open, closes it. Install and update screens are not blocked.
 
@@ -80,7 +82,7 @@ Checked against `BiometricAppLock/app/src/main/AndroidManifest.xml` and the debu
 | `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Declared by this app so setup can open the system dialog that asks you to leave battery optimization. The permission does not grant the exemption. You still have to tap Allow. The app does not use usage access, draw-over-other-apps, or notifications. |
 | `android.permission.USE_FINGERPRINT` | Not declared in this app’s manifest. AndroidX Biometric adds it in the merged manifest so older platforms can show the prompt. |
 | `com.achillesrogan.applock.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | Signature permission added by AndroidX to protect its own non-exported receivers. It is not a privacy capability of this app. |
-| Accessibility service | You enable it in system Settings. It receives `TYPE_WINDOW_STATE_CHANGED` and `TYPE_VIEW_CLICKED`. `canRetrieveWindowContent` is true, with `flagReportViewIds` and `flagRetrieveInteractiveWindows`, so it can read installer and Settings windows and press Cancel, Back, or Home when a fingerprint prompt is cancelled. The service element requires `android.permission.BIND_ACCESSIBILITY_SERVICE`, so only the system can bind to it. |
+| Accessibility service | You enable it in system Settings. It receives `TYPE_WINDOW_STATE_CHANGED`, `TYPE_VIEW_CLICKED`, and `TYPE_WINDOWS_CHANGED`. `canRetrieveWindowContent` is true, with `flagReportViewIds` and `flagRetrieveInteractiveWindows`, so it can read installer and Settings windows, recognize overview view ids on launcher and SystemUI windows, and press Cancel, Back, or Home when a fingerprint prompt is cancelled. The Recents cover uses `TYPE_ACCESSIBILITY_OVERLAY`, which does not need the draw-over-other-apps permission. The service element requires `android.permission.BIND_ACCESSIBILITY_SERVICE`, so only the system can bind to it. |
 | Device administrator | Not a `uses-permission`. `AppDeviceAdminReceiver` is exported and guarded by `android.permission.BIND_DEVICE_ADMIN`, which only the system holds. While it is active, Android blocks uninstalling this app until it is deactivated. The XML requests no policies. |
 | `<queries>` | On Android 11 and newer: launcher activities (the app list), the home screen (Back from the lock screen sends you home), the settings screens setup opens (accessibility, app info, device admin, battery, fingerprint, Security settings, and the Auto Blocker action when Samsung exposes it), the Auto Blocker package `com.samsung.android.rampart` so its presence can be checked, and an `https` VIEW intent so the credit link can see whether a browser is installed. None of these grant network access. |
 | No `INTERNET` | The source manifest and the merged debug manifest do not request `INTERNET`. |
@@ -93,7 +95,7 @@ The app does not declare a network permission, and the source does not open sock
 
 What stays on the device:
 
-- The set of locked package names, in app-private preferences (`app_lock_prefs`).
+- The set of locked package names, in app-private preferences (`app_lock_prefs`). The same file stores Hide locked apps in Recents (missing means on) and Stricter Recents cover (missing means off).
 - A boolean that remembers to explain a fingerprint-enrollment change (`biometric_gate`).
 - Which optional setup steps you skipped (`setup_prefs`). Turning the real setting on later still counts as done.
 - Whether the uninstall-protection explanation has already been shown (`setup_prefs`). Setup being finished collapses it even when this flag is still off.
@@ -103,6 +105,8 @@ What stays on the device:
 - The Keystore key, which never leaves the Android Keystore. The app does not store the ciphertext from the auth check.
 
 To do its job locally, the app reads the list of launchable apps and, while the accessibility service is on, the package name of the window that came to the front. It does not read what you type, and it does not read ordinary app windows.
+
+When Hide locked apps in Recents is on, a launcher or SystemUI window may be checked for a visible overview view id (`overview_panel`, `overview_actions_view`, `recents_view`, `recents_container`, `clear_all_button`). The text and content descriptions on those cards are not read. The active window’s package and class are read so a stale “this is Recents” flag cannot keep the cover up. Status-bar and notification-shade windows are not scanned. If the setting is off, or no app is locked, that check does not run. Stricter Recents cover uses the same windows; it does not read anything more.
 
 When uninstall protection is on, a window from a known package installer or from Settings (including MIUI Security, and a few other OEM settings packages) may be read if it looks like an uninstall activity, an app-info screen, a device-admin screen, or an alert dialog. The text and view ids are used to decide whether the action targets a locked app or this app, then discarded. Install and update screens are not read for this check. Settings pages that are not those screens, including Wi-Fi password dialogs, are not read. Cancelling the fingerprint prompt can press Cancel on that system window, or Back and Home.
 
@@ -160,13 +164,20 @@ You can also open the `BiometricAppLock` directory in Android Studio (Ladybug or
             │   │   ├── SetupActivity.kt
             │   │   ├── AutoBlocker.kt
             │   │   ├── UninstallDisclaimer.kt
-            │   │   └── Credit.kt
+            │   │   ├── Credit.kt
+            │   │   ├── RecentsDetector.kt
+            │   │   ├── RecentsGuard.kt
+            │   │   ├── RecentsCover.kt
+            │   │   ├── RecentsCoverMachine.kt
+            │   │   └── OverviewScanner.kt
         │   └── res/         layouts, strings, themes, accessibility service XML, device admin XML
         └── src/test/java/com/achillesrogan/applock/
             ├── UninstallSignalsTest.kt
             ├── SetupPlanTest.kt
             ├── AutoBlockerTest.kt
-            └── UninstallDisclaimerTest.kt
+            ├── UninstallDisclaimerTest.kt
+            ├── RecentsDetectorTest.kt
+            └── RecentsCoverMachineTest.kt
 ```
 
 ## Limitations and known issues
@@ -186,7 +197,12 @@ This is an accessibility-service locker. Version 1.4 also turns on a device admi
 - Viewing App info, installing, and updating are not blocked. An uninstall of an app that is not locked, and is not this app, is not blocked.
 - Setup deep links fall back when a phone has no exact screen: accessibility details, then the accessibility list; the battery dialog, then the battery list, then app info. Some OEMs grey out the accessibility switch without the Android 13 restricted-settings app-op. The accessibility step still tells you to use the ⋮ menu. The app does not ask for usage access, an overlay, or notification permission.
 - Samsung Auto Blocker is detected only on a Samsung device. The One UI version comes from `ro.build.version.oneui` when that property can be read, otherwise from `Build.VERSION.SEM_PLATFORM_INT` minus 90000 (60000 is One UI 6.0, 60101 is One UI 6.1.1). If neither can be read, the step is shown only when the package `com.samsung.android.rampart` is installed. A known One UI older than 6 does not show the step. There is no public API for the switches. The app reads `Settings.Secure` keys `rampart_main_switch_enabled`, `rampart_blocked_unknown_apps`, `rampart_blocked_adb_cmd`, and `rampart_strict_protection_switch_enabled`, and trusts a value only when it is `0` or `1`. Anything else is a manual check. The main switch reading off is treated as the affecting switches being off, unless one of those keys still reads `1`. The button tries Samsung's Auto Blocker settings action, then `com.android.settings.Settings$AutoBlockerSettingsActivity`, then Security settings. Those first two are not a stable public API.
-- `FLAG_SECURE` covers this app’s settings and lock windows. The Recents thumbnail of a **locked app** can still show that app’s own last frame.
+- `FLAG_SECURE` is set on this app’s settings, setup, and lock windows, and on the Recents cover. That blanks this app’s own Recents card and screenshots. It cannot be set on another app’s window. The other app’s task snapshot is still stored by Android. Hide locked apps in Recents covers the overview while it is on screen; it does not erase that snapshot.
+- With only Hide locked apps in Recents, the cover can be a frame or two late. The accessibility event arrives after the overview window is already visible, and on gesture navigation the launcher activity is also the home screen, so the cover waits until an overview view id is actually visible. Stricter Recents cover puts the cover up on the first launcher, SystemUI, or recents window after an unlocked locked app, including `TYPE_WINDOWS_CHANGED`, without waiting for those ids. It then waits 320 ms before trusting “no overview id” as Home, and drops the cover by 1.1 seconds if overview was never confirmed. A confirmed overview is kept, and rechecked every 4 seconds so a missed leave cannot leave the cover up. The 3-button overview key is not filtered: gesture navigation does not send that key, and filtering keys would let this service swallow them.
+- A full block of the thumbnail is impossible without the locked app setting `FLAG_SECURE` itself, or root. Android stores the snapshot of that app’s surface when it leaves the foreground. This cover hides the overview while it is on screen. It does not erase the snapshot, and a frame can still be drawn before the first accessibility event.
+- Overview detection is written for AOSP/Pixel SystemUI `RecentsActivity`, Quickstep on Pixel Launcher (`com.google.android.apps.nexuslauncher`), AOSP Launcher3, Samsung One UI (`com.sec.android.app.launcher`, including a `RecentsActivity` class), Xiaomi (`com.miui.home` and `RecentsActivity`), Huawei, Honor, OPPO, realme, OnePlus, Nothing, Motorola, vivo, Sony, LG, Transsion, ASUS, Nova, and Microsoft. An unlisted launcher is still recognized when its class name is `RecentsActivity`, `RecentsView`, `OverviewActivity`, or `OverviewProxyActivity`, or when the class name contains `launcher3`, `quickstep`, or `.recents.` and a Launcher3 overview view id is visible. Anything else is not covered. With the switch off, a SystemUI overview that this build ignores does not clear the in-memory unlock, so the card you were just in can open without a new fingerprint. That is the 1.5 behavior.
+- The cover is the whole overview, not the individual cards. Android does not give a third-party app the recents task list, so the cover appears whenever any app is locked, even if that app’s card is not in the stack. Touches on the overview are blocked, because passing them through would open a card you cannot see. Home on the cover leaves. Putting the lock screen into the other app’s task was rejected: `LockActivity` is its own task, and the snapshot is taken from the other app’s surface, so the lock UI would not replace the thumbnail.
+- If a phone draws overview above the accessibility-overlay layer, the cover cannot hide it. The unlock is still cleared once overview is recognized, so opening the app asks for a fingerprint, but the thumbnail itself can remain visible.
 - Adding a fingerprint invalidates the old Keystore key. The replacement key accepts every strong biometric enrolled at that moment. Someone who can enroll a new fingerprint can pass the new prompt. There is no device-PIN step before the new key is created.
 - Some phone makers stop background services to save battery. If locking stops, set this app’s battery use to Unrestricted.
 - Google Play restricts accessibility-service lockers. This build is for sideloading and personal use.
@@ -214,6 +230,14 @@ The full GNU General Public License v3 text is in [LICENSE](LICENSE). You may us
 The Gradle wrapper scripts `BiometricAppLock/gradlew` and `BiometricAppLock/gradlew.bat` keep their upstream Apache License 2.0 headers. Those files are the Gradle wrapper, not the license for the app.
 
 ## Changelog
+
+### 1.6 — 2026-11-16
+
+versionCode 7. Same package id `com.achillesrogan.applock`, so this installs over 1.5.
+
+- Hide locked apps in Recents, on by default. While any app is locked, the overview screen is covered by an opaque accessibility overlay, and the in-memory unlock is cleared so opening a locked app asks for a fingerprint again. The main screen has a switch for it. No new permission.
+- The cover recognizes SystemUI and Quickstep recents class names, and Launcher3 overview view ids on Pixel, AOSP, Samsung, Xiaomi, and the other launchers listed under Limitations. A launcher this build does not recognize is not covered. The other app’s stored snapshot is not erased. Without the stricter switch, a frame of it can show before the cover appears.
+- Stricter Recents cover, off by default, and only while Hide locked apps in Recents is on. Leaving an unlocked locked app for the launcher or SystemUI covers the screen immediately and clears the unlock. The cover comes down after 320 ms if that stop was Home, immediately if another app opened, and by 1.1 seconds if overview was never confirmed. Confirmed overview stays, and is rechecked every 4 seconds. Home flashes dark. A full block of the other app’s thumbnail still needs that app’s own `FLAG_SECURE`, or root.
 
 ### 1.5 — 2026-11-12
 
