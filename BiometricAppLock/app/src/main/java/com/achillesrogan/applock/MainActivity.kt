@@ -10,7 +10,6 @@ import android.view.WindowManager
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.core.view.updatePadding
@@ -21,7 +20,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,14 +39,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authMessage: TextView
     private lateinit var enrollButton: MaterialButton
     private lateinit var banner: MaterialCardView
-    private lateinit var reviewSetupButton: MaterialButton
-    private lateinit var protectionSwitch: MaterialSwitch
-    private lateinit var hideRecentsSwitch: MaterialSwitch
-    private lateinit var stricterRecentsSwitch: MaterialSwitch
-    private lateinit var stricterRecentsBlock: View
-    private lateinit var disclaimerSummary: View
-    private lateinit var disclaimerBody: TextView
-    private lateinit var disclaimerDetails: MaterialButton
+    private lateinit var bannerTitle: TextView
+    private lateinit var bannerBody: TextView
+    private lateinit var bannerButton: MaterialButton
     private lateinit var creditFooter: TextView
     private lateinit var lockedCount: TextView
     private lateinit var emptySearch: TextView
@@ -61,23 +54,11 @@ class MainActivity : AppCompatActivity() {
 
     private var authenticated = false
     private var authInProgress = false
-    private var updatingProtectionSwitch = false
-    private var updatingHideRecents = false
-    private var updatingStricterRecents = false
     private var offeredSetup = false
-    private var disclaimerExpanded = false
-
-    /** Full explanation was on screen this visit. Recorded when the activity stops. */
-    private var showingFullDisclaimer = false
-
-    private val enableAdminLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { /* The switch matches device-admin state after the next fingerprint. */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         offeredSetup = savedInstanceState?.getBoolean(STATE_OFFERED_SETUP) == true
-        disclaimerExpanded = savedInstanceState?.getBoolean(STATE_DISCLAIMER_EXPANDED) == true
         // Do not read an authenticated flag from savedInstanceState. Rotation and
         // process death must prompt again, and the lock list must not flash first.
         prepareEdgeToEdgeWindow()
@@ -99,33 +80,11 @@ class MainActivity : AppCompatActivity() {
         appList = findViewById(R.id.appList)
         appList.layoutManager = LinearLayoutManager(this)
         appList.adapter = adapter
-        findViewById<MaterialButton>(R.id.openSettingsButton).setOnClickListener {
-            startActivity(Intent(this, SetupActivity::class.java))
-        }
-        reviewSetupButton = findViewById(R.id.reviewSetupButton)
-        reviewSetupButton.setOnClickListener {
-            startActivity(Intent(this, SetupActivity::class.java))
-        }
-        protectionSwitch = findViewById(R.id.uninstallProtectionSwitch)
-        protectionSwitch.setOnCheckedChangeListener { _, checked -> onProtectionToggled(checked) }
-        hideRecentsSwitch = findViewById(R.id.hideRecentsSwitch)
-        stricterRecentsSwitch = findViewById(R.id.stricterRecentsSwitch)
-        stricterRecentsBlock = findViewById(R.id.stricterRecentsBlock)
-        hideRecentsSwitch.setOnCheckedChangeListener { _, checked ->
-            if (!updatingHideRecents && authenticated) RecentsGuard.setEnabled(this, checked)
-            refreshStricterRecentsSwitch()
-        }
-        stricterRecentsSwitch.setOnCheckedChangeListener { _, checked ->
-            if (updatingStricterRecents || !authenticated) return@setOnCheckedChangeListener
-            RecentsGuard.setStricter(this, checked)
-        }
-        refreshHideRecentsSwitch()
-        disclaimerSummary = findViewById(R.id.uninstallDisclaimerSummary)
-        disclaimerBody = findViewById(R.id.uninstallDisclaimerBody)
-        disclaimerDetails = findViewById(R.id.uninstallDisclaimerDetails)
-        disclaimerDetails.setOnClickListener {
-            disclaimerExpanded = !disclaimerExpanded
-            refreshDisclaimer()
+        bannerTitle = findViewById(R.id.lockBannerTitle)
+        bannerBody = findViewById(R.id.lockBannerBody)
+        bannerButton = findViewById(R.id.lockBannerButton)
+        findViewById<View>(R.id.settingsButton).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
         creditFooter = findViewById(R.id.creditFooter)
         creditFooter.paintFlags = creditFooter.paintFlags or Paint.UNDERLINE_TEXT_FLAG
@@ -153,7 +112,6 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(STATE_OFFERED_SETUP, offeredSetup)
-        outState.putBoolean(STATE_DISCLAIMER_EXPANDED, disclaimerExpanded)
     }
 
     override fun onResume() {
@@ -176,18 +134,10 @@ class MainActivity : AppCompatActivity() {
             showBlocked(Biometrics.unavailableReason(this) ?: getString(R.string.biometric_unavailable))
             return
         }
-        refreshSetupEntry()
-        refreshProtectionSwitch()
-        refreshHideRecentsSwitch()
-        refreshDisclaimer()
+        refreshLockBanner()
     }
 
     override fun onStop() {
-        // The next visit collapses the explanation. A biometric prompt pauses this
-        // activity before the list is shown, so this is recorded here rather than
-        // the moment the text is bound.
-        if (showingFullDisclaimer) SetupStatus.markDisclaimerSeen(this)
-        showingFullDisclaimer = false
         super.onStop()
         // Re-lock whenever this screen leaves the foreground, including rotation.
         // Hiding here means the lock list is already gone when the window is shown again.
@@ -232,10 +182,7 @@ class MainActivity : AppCompatActivity() {
                 authenticated = true
                 authGate.visibility = View.GONE
                 content.visibility = View.VISIBLE
-                refreshSetupEntry()
-                refreshProtectionSwitch()
-                refreshHideRecentsSwitch()
-                refreshDisclaimer()
+                refreshLockBanner()
                 if (enrollmentChanged) {
                     Toast.makeText(this, R.string.biometric_rearmed, Toast.LENGTH_LONG).show()
                 }
@@ -296,29 +243,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Full text until the user has left the screen after seeing it, or once
-     * required setup is done. Details puts the full text back.
-     */
-    private fun refreshDisclaimer() {
-        if (content.visibility != View.VISIBLE) return
-        val collapse = UninstallDisclaimer.collapsed(
-            setupComplete = SetupStatus.requiredComplete(this),
-            seen = SetupStatus.disclaimerSeen(this),
-        )
-        if (!collapse) {
-            showingFullDisclaimer = true
-            disclaimerSummary.visibility = View.GONE
-            disclaimerBody.visibility = View.VISIBLE
-            return
-        }
-        disclaimerSummary.visibility = View.VISIBLE
-        disclaimerBody.visibility = if (disclaimerExpanded) View.VISIBLE else View.GONE
-        disclaimerDetails.setText(
-            if (disclaimerExpanded) R.string.uninstall_protection_hide else R.string.uninstall_protection_details,
-        )
-    }
-
     private fun openCredit() {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(Credit.URL))
         try {
@@ -332,60 +256,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshSetupEntry() {
-        val needed = !SetupStatus.requiredComplete(this)
-        banner.visibility = if (needed) View.VISIBLE else View.GONE
-        reviewSetupButton.visibility = if (needed) View.GONE else View.VISIBLE
-    }
-
-    private fun refreshHideRecentsSwitch() {
-        val enabled = RecentsGuard.isEnabled(this)
-        if (hideRecentsSwitch.isChecked != enabled) {
-            updatingHideRecents = true
-            hideRecentsSwitch.isChecked = enabled
-            updatingHideRecents = false
-        }
-        refreshStricterRecentsSwitch()
-    }
-
-    private fun refreshStricterRecentsSwitch() {
-        val stored = RecentsGuard.isStricterStored(this)
-        if (stricterRecentsSwitch.isChecked != stored) {
-            updatingStricterRecents = true
-            stricterRecentsSwitch.isChecked = stored
-            updatingStricterRecents = false
-        }
-        val parentOn = hideRecentsSwitch.isChecked
-        stricterRecentsSwitch.isEnabled = parentOn
-        stricterRecentsBlock.alpha = if (parentOn) 1f else 0.45f
-    }
-
-    private fun refreshProtectionSwitch() {
-        val active = DeviceAdmin.isActive(this)
-        if (protectionSwitch.isChecked == active) return
-        updatingProtectionSwitch = true
-        protectionSwitch.isChecked = active
-        updatingProtectionSwitch = false
-    }
-
-    private fun onProtectionToggled(checked: Boolean) {
-        if (updatingProtectionSwitch || !authenticated) return
-        val active = DeviceAdmin.isActive(this)
-        if (checked == active) return
-        if (checked) {
-            if (!AppLockService.isEnabled(this)) {
-                Toast.makeText(this, R.string.uninstall_protection_needs_service, Toast.LENGTH_LONG).show()
+    private fun refreshLockBanner() {
+        LockStore.load(this)
+        val problem = LockHealth.problem(
+            serviceEnabled = AppLockService.isEnabled(this),
+            keyBroken = Biometrics.isKeyBroken(this),
+        )
+        when (problem) {
+            LockHealth.Problem.SERVICE_OFF -> {
+                banner.visibility = View.VISIBLE
+                bannerTitle.setText(R.string.lock_service_off_title)
+                bannerBody.setText(R.string.lock_service_off_body)
+                bannerButton.setText(R.string.lock_service_off_button)
+                bannerButton.setOnClickListener {
+                    SetupIntents.open(this, SetupPlan.StepId.ACCESSIBILITY)
+                }
             }
-            enableAdminLauncher.launch(DeviceAdmin.enableIntent(this))
-            refreshProtectionSwitch()
-        } else if (!DeviceAdmin.deactivate(this)) {
-            Toast.makeText(this, R.string.device_admin_change_failed, Toast.LENGTH_LONG).show()
-            refreshProtectionSwitch()
-        } else {
-            protectionSwitch.postDelayed({
-                if (!isDestroyed) refreshProtectionSwitch()
-            }, 300)
+            LockHealth.Problem.KEY_BROKEN -> {
+                banner.visibility = View.VISIBLE
+                bannerTitle.setText(R.string.lock_key_broken_title)
+                bannerBody.setText(R.string.lock_key_broken_body)
+                bannerButton.setText(R.string.lock_key_broken_button)
+                bannerButton.setOnClickListener { repairFingerprintKey() }
+            }
+            LockHealth.Problem.NONE -> {
+                val needed = !SetupStatus.requiredComplete(this)
+                banner.visibility = if (needed) View.VISIBLE else View.GONE
+                if (needed) {
+                    bannerTitle.setText(R.string.service_off_title)
+                    bannerBody.setText(R.string.service_off_body)
+                    bannerButton.setText(R.string.open_settings)
+                    bannerButton.setOnClickListener {
+                        startActivity(Intent(this, SetupActivity::class.java))
+                    }
+                }
+            }
         }
+    }
+
+    private fun repairFingerprintKey() {
+        val repaired = Biometrics.repairKey(this)
+        Toast.makeText(
+            this,
+            if (repaired) R.string.lock_key_repaired else R.string.lock_key_repair_failed,
+            Toast.LENGTH_LONG,
+        ).show()
+        refreshLockBanner()
     }
 
     private fun openEnrollment() {
@@ -462,6 +378,5 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val STATE_OFFERED_SETUP = "offered_setup"
-        private const val STATE_DISCLAIMER_EXPANDED = "disclaimer_expanded"
     }
 }

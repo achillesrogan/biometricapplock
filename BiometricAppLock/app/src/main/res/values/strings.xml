@@ -4,6 +4,16 @@
     <string name="service_off_title">Finish setup</string>
     <string name="service_off_body">A few system settings are still off. Setup opens each screen for you.</string>
     <string name="open_settings">Continue setup</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="lock_service_off_title">App lock is off</string>
+    <string name="lock_service_off_body">The accessibility service stopped, so the switches are not being enforced. Turn the service back on. Do not clear this app’s cache or storage. That does not fix it, and clearing storage removes the lock list.</string>
+    <string name="lock_service_off_button">Turn on accessibility</string>
+    <string name="lock_key_broken_title">Fingerprint key needs a repair</string>
+    <string name="lock_key_broken_body">The secure key could not be used. Repair replaces that key only. Locked apps stay saved. Do not clear storage.</string>
+    <string name="lock_key_broken_button">Repair fingerprint key</string>
+    <string name="lock_key_repaired">Fingerprint key repaired. Locked apps were not cleared.</string>
+    <string name="lock_key_repair_failed">The fingerprint key could not be repaired. Turn the accessibility service off and on again. Do not clear storage.</string>
     <string name="review_setup">Review setup</string>
     <string name="setup_title">Set up Biometric App Lock</string>
     <string name="setup_intro">Each step opens the right system screen. Turn the setting on, then come back. The next step opens on its own.</string>
