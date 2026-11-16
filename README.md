@@ -6,7 +6,7 @@ Package name: `com.achillesrogan.applock`. Repository: https://github.com/achill
 
 Previously named Fingerprint App Lock (v1.2 and earlier); same package ID and signing certificate.
 
-Current version: **1.7** (versionCode 8).
+Current version: **1.8** (versionCode 9).
 
 ## Features
 
@@ -14,7 +14,8 @@ Current version: **1.7** (versionCode 8).
 - The prompt is bound to an Android Keystore AES key through `BiometricPrompt.CryptoObject`. The app continues only after `Cipher.doFinal` succeeds. The key requires authentication on every use, and enrolling or removing a biometric invalidates it (`setInvalidatedByBiometricEnrollment`).
 - **Fails closed.** If no strong biometric is enrolled, or the sensor is unavailable, the settings list stays hidden and a locked app stays covered.
 - `FLAG_SECURE` on the settings screen, the setup screen, the lock screen, and the Recents cover, so those windows are left out of screenshots and this app’s own Recents preview.
-- **Hide locked apps in Recents** (version 1.6, on by default). While any app is locked, opening the overview screen covers it with an opaque accessibility overlay. The unlock for the app you just left is cleared, so opening it again asks for a fingerprint. Home on the cover leaves the overview. The switch is on the main screen.
+- **Hide locked apps in Recents** (version 1.6, on by default). While any app is locked, opening the overview screen covers it with an opaque accessibility overlay. The unlock for the app you just left is cleared, so opening it again asks for a fingerprint. Home on the cover leaves the overview. The switch is in Settings. A cover failure skips the rest of that overview only. The next time Recents opens, the screen turns off or on, or an app locks or unlocks, the cover is armed again.
+- **Require fingerprint for Recents** (version 1.8, off by default). While Hide locked apps in Recents is on, opening Recents can ask for a fingerprint before the previews are shown. Success lifts the cover for that visit only. Cancel or a failed fingerprint leaves the cover up, with Home. The next Recents open asks again. There is no grace period. The switch does nothing while Hide locked apps in Recents is off.
 - **Stricter Recents cover** (version 1.6, off by default). Only applies while the switch above is on. It covers the screen the moment you leave an unlocked locked app for the launcher or SystemUI, before overview is confirmed, then removes the cover if that stop was Home or another app. Home flashes dark for a moment, which is why it starts off.
 - `filterTouchesWhenObscured` on both screens, so a touch that passes through another window cannot flip a lock switch or press the unlock button.
 - Search at the top of the app list. It filters live, case-insensitively, by app name and package name. Lock switches keep the real saved state while the list is filtered. A search with no hits shows an empty state. The field is inside the authenticated content and is hidden until biometric auth succeeds.
@@ -47,7 +48,7 @@ This repository does not attach release binaries yet. When a file is published (
    A checksum only matches the exact file it was generated for. An APK you build yourself will have a different hash.
 
 2. Allow installation from that source if Android asks. On Android 8 and newer this is per-app: the browser or file manager needs **Install unknown apps**.
-3. Open the APK and install it. Version 1.7 (versionCode 8) uses application id `com.achillesrogan.applock`. It installs in place over 1.6. It does not replace the 1.0 or 1.1 test installs, which used a different application id.
+3. Open the APK and install it. Version 1.8 (versionCode 9) uses application id `com.achillesrogan.applock`. It installs in place over 1.7. It does not replace the 1.0 or 1.1 test installs, which used a different application id.
 4. Open **Biometric App Lock**. Setup opens each system screen for you, one at a time: a fingerprint if you still need one, **Allow restricted settings** when Android has greyed out the accessibility switch, the accessibility service, Samsung Auto Blocker on a Galaxy phone with One UI 6 or newer, uninstall protection, then battery. Come back after each one and the next screen opens. You can reopen the list later with **Review setup**.
    - On Android 13 and newer, a file install often greys out the accessibility switch until you allow restricted settings. Setup sends you to the app info screen first and tells you to tap the ⋮ menu. Installing from F-Droid, IzzyOnDroid, or Obtainium usually does not set that flag. The same steps can be done from a computer: [docs/ADB_SETUP.md](docs/ADB_SETUP.md).
    - On a Galaxy phone with One UI 6 or newer, setup includes Auto Blocker. It does not ask you to turn Auto Blocker off. Block apps from unauthorized sources stops an APK install or update (Galaxy Store and Play Store installs are not blocked). Block commands by USB cable stops the computer setup commands. Maximum restrictions, on One UI 6.1.1 and newer, blocks device administrator, so uninstall protection cannot be turned on until that switch is off. App locking works with the rest of Auto Blocker left on. If the app cannot read a switch, that step is labeled Manual check. Other phones do not show the step.
@@ -230,6 +231,13 @@ The full GNU General Public License v3 text is in [LICENSE](LICENSE). You may us
 The Gradle wrapper scripts `BiometricAppLock/gradlew` and `BiometricAppLock/gradlew.bat` keep their upstream Apache License 2.0 headers. Those files are the Gradle wrapper, not the license for the app.
 
 ## Changelog
+
+### 1.8 — 2026-11-16
+
+versionCode 9. Same package id `com.achillesrogan.applock`, so this installs over 1.7.
+
+- The Recents cover comes back every time Recents opens. In 1.7 a failure while clearing all apps set a flag for the rest of the process, so the next overview showed the real thumbnails and the cover never returned. That flag now lasts for the current overview only. It resets when Recents opens again, when the screen turns off or on, and when an app locks or unlocks. Debug builds log the reason the cover stood down. A detached overlay is attached again instead of being treated as already showing.
+- Require fingerprint for Recents, off by default, under Hide locked apps in Recents. It is disabled while that switch is off. When it is on, Recents asks for a strong fingerprint before showing previews. Success lifts the cover for that visit. Cancel or failure keeps it up and Home still leaves. The next Recents open asks again. There is no grace period, so one unlock cannot reveal the other locked previews.
 
 ### 1.7 — 2026-11-16
 

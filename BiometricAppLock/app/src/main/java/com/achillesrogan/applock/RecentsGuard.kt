@@ -10,6 +10,7 @@ object RecentsGuard {
     private const val PREFS = "app_lock_prefs"
     private const val KEY = "hide_locked_in_recents"
     private const val KEY_STRICT = "stricter_recents_cover"
+    private const val KEY_FINGERPRINT = "require_fingerprint_recents"
 
     fun enabledOrDefault(stored: Boolean?): Boolean = stored ?: true
 
@@ -31,6 +32,20 @@ object RecentsGuard {
 
     fun setStricter(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_STRICT, enabled).apply()
+    }
+
+    /** Off unless chosen. Asking on every Recents open is extra, and the cover already hides thumbnails. */
+    fun fingerprintOrDefault(stored: Boolean?): Boolean = stored ?: false
+
+    fun fingerprintActive(hideEnabled: Boolean, stored: Boolean): Boolean = hideEnabled && stored
+
+    fun isFingerprintStored(context: Context): Boolean = prefs(context).getBoolean(KEY_FINGERPRINT, false)
+
+    fun requiresFingerprint(context: Context): Boolean =
+        fingerprintActive(isEnabled(context), isFingerprintStored(context))
+
+    fun setFingerprint(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_FINGERPRINT, enabled).apply()
     }
 
     private fun prefs(context: Context) =

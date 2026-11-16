@@ -1,11 +1,13 @@
 package com.achillesrogan.applock
 
 import android.accessibilityservice.AccessibilityService
+import android.util.Log
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -38,8 +40,14 @@ class AppLockService : AccessibilityService() {
     private var lastScanAt = -1L
     private var lastBurstAt = -1L
 
-    /** Set when the cover path throws. App locking keeps running; the overlay stays off. */
+    /**
+     * Set when the cover path throws. Blocks another attempt for this overview only.
+     * The next overview, screen off/on, or a lock/unlock clears it. App locking stays on.
+     */
     private var recentsCoverRetired = false
+
+    /** True from the first cover of this overview until it closes. A failure does not clear it. */
+    private var overviewSessionOpen = false
 
     private val locksChanged: () -> Unit = { LockStore.load(this) }
 
@@ -49,7 +57,7 @@ class AppLockService : AccessibilityService() {
             dispatch(RecentsCoverMachine.Kind.DISABLED)
             performGlobalAction(GLOBAL_ACTION_HOME)
         } catch (e: Exception) {
-            retireRecentsCover()
+            retireRecentsCover("home action failed")
         }
     }
 
@@ -69,6 +77,16 @@ class AppLockService : AccessibilityService() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> onScreenOff()
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    if (coverState.phase != RecentsCoverMachine.Phase.IDLE && recentsCover.isShowing()) {
+                        recentsCoverRetired = false
+                        lastBurstAt = -1L
+                        lastScanAt = -1L
+                        RecentsFingerprintGate.begin()
+                        maybePromptForRecents()
+                        logCover("rearm: screen on")
+                    } else {
+                        rearmRecentsCover("screen on")
+                    }
                     // Re-check after the screen-off suppress window, in case a confirmation
                     // was still open when the display came back.
                     val wait = (LockState.suppressProtectionUntil - SystemClock.elapsedRealtime())
@@ -84,6 +102,30 @@ class AppLockService : AccessibilityService() {
         super.onServiceConnected()
         LockStore.load(this)
         LockStore.addListener(locksChanged)
+        RecentsFingerprintGate.onGranted = {
+            handler.post {
+                logCover("fingerprint granted, cover lifted")
+                recentsCover.hide()
+            }
+        }
+        RecentsFingerprintGate.onHome = {
+            handler.post {
+                try {
+                    dispatch(RecentsCoverMachine.Kind.DISABLED)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                } catch (e: Exception) {
+                    retireRecentsCover("home action failed")
+                }
+            }
+        }
+        RecentsFingerprintGate.onAuthFinished = { granted ->
+            handler.post {
+                if (granted || RecentsFingerprintGate.granted()) return@post
+                if (coverState.phase == RecentsCoverMachine.Phase.IDLE) return@post
+                if (recentsCoverRetired) return@post
+                if (!recentsCover.show()) logCover("overlay rejected after auth closed")
+            }
+        }
         ProtectionController.dismissUnderlying = { closeDangerousUi(andGoHome = true) }
         ContextCompat.registerReceiver(
             this,
@@ -100,12 +142,11 @@ class AppLockService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         // The cover must not be able to kill this service. A dead service is why
         // the switches can still say on while nothing locks.
-        if (!recentsCoverRetired && RecentsCoverSession.coverAllowed(false)) {
-            try {
-                handleRecentsEvent(event)
-            } catch (e: Exception) {
-                retireRecentsCover()
-            }
+        try {
+            handleRecentsEvent(event)
+        } catch (e: Exception) {
+            logCover("cover event failed: ${e.javaClass.simpleName}")
+            retireRecentsCover(e.javaClass.simpleName)
         }
         try {
             handleLockEvent(event)
@@ -133,6 +174,12 @@ class AppLockService : AccessibilityService() {
         if (isWindow && overviewInFront(pkg, className)) return
 
         if (isWindow && isActivity(pkg, event.className)) {
+            if (!RecentsDetector.mayHostOverview(pkg, className) &&
+                !RecentsDetector.classNameIsRecents(className) &&
+                (coverState.phase == RecentsCoverMachine.Phase.IDLE || recentsCoverRetired)
+            ) {
+                rearmRecentsCover("lock or unlock")
+            }
             LockState.onForegroundChanged(pkg)
             if (pkg !in UninstallSignals.SETTINGS_PACKAGES) recentSubject = null
             LockStore.load(this)
@@ -217,7 +264,6 @@ class AppLockService : AccessibilityService() {
      * takes that cover down if the user landed on Home or another app.
      */
     private fun noteOverview(pkg: String?, className: String, fromWindowsChanged: Boolean) {
-        if (recentsCoverRetired) return
         if (pkg == packageName || (pkg != null && pkg in keyboardPackages())) return
         lastClassIsRecents = className.isNotEmpty() && RecentsDetector.classNameIsRecents(className)
         lastWindowWasHost = lastClassIsRecents ||
@@ -340,12 +386,32 @@ class AppLockService : AccessibilityService() {
         handler.removeCallbacks(coverWatchdog)
         effect.watchdogInMs?.takeIf { it > 0L }?.let { handler.postDelayed(coverWatchdog, it) }
         if (!effect.coverVisible) handler.removeCallbacks(overviewCheck)
+        if (!overviewSessionOpen && effect.coverVisible) {
+            rearmForNewOverview()
+        }
         if (effect.scheduleBurst) scheduleOverviewChecks()
         if (effect.relock) LockState.relockAll()
-        if (effect.coverVisible) {
-            if (!recentsCover.show()) retireRecentsCover()
+        val lifted = RecentsFingerprintGate.granted()
+        val authCovering = RecentsFingerprintGate.prompted && !lifted &&
+            RecentsGuard.requiresFingerprint(this)
+        if (effect.coverVisible && !lifted && !authCovering) {
+            if (recentsCoverRetired) {
+                recentsCover.hide()
+            } else if (!recentsCover.show()) {
+                retireRecentsCover("overlay rejected")
+            } else {
+                maybePromptForRecents()
+            }
         } else {
             recentsCover.hide()
+            if (overviewSessionOpen && !effect.coverVisible) {
+                overviewSessionOpen = false
+                recentsCoverRetired = false
+                lastBurstAt = -1L
+                lastScanAt = -1L
+                RecentsFingerprintGate.clear()
+                logCover("rearm: overview closed")
+            }
         }
         if (effect.lockForegroundIfNeeded && wasUp && !lastWindowWasHost) {
             val fg = LockState.foreground()
@@ -357,16 +423,63 @@ class AppLockService : AccessibilityService() {
         }
     }
 
-    private fun retireRecentsCover() {
-        if (recentsCoverRetired) {
-            recentsCover.hide()
-            return
-        }
+    private fun retireRecentsCover(reason: String) {
+        logCover("cover off for this overview: $reason")
         recentsCoverRetired = true
         coverState = RecentsCoverMachine.State()
         handler.removeCallbacks(overviewCheck)
         handler.removeCallbacks(coverWatchdog)
-        recentsCover.hide()
+        recentsCover.discard()
+    }
+
+    /** Next Recents open, screen off/on, or a lock/unlock must be able to cover again. */
+    private fun rearmRecentsCover(reason: String, forceDrop: Boolean = false) {
+        val keepCover = !forceDrop &&
+            coverState.phase != RecentsCoverMachine.Phase.IDLE &&
+            recentsCover.isShowing()
+        logCover("rearm: $reason")
+        recentsCoverRetired = false
+        lastBurstAt = -1L
+        lastScanAt = -1L
+        overviewSessionOpen = false
+        if (keepCover) {
+            overviewSessionOpen = true
+            return
+        }
+        coverState = RecentsCoverMachine.State()
+        handler.removeCallbacks(overviewCheck)
+        handler.removeCallbacks(coverWatchdog)
+        recentsCover.discard()
+        RecentsFingerprintGate.clear()
+    }
+
+    private fun rearmForNewOverview() {
+        overviewSessionOpen = true
+        recentsCoverRetired = false
+        lastBurstAt = -1L
+        lastScanAt = -1L
+        RecentsFingerprintGate.begin()
+        logCover("rearm: new overview")
+    }
+
+    private fun maybePromptForRecents() {
+        if (!RecentsGuard.requiresFingerprint(this)) return
+        if (RecentsFingerprintGate.granted()) return
+        if (RecentsFingerprintGate.prompted) return
+        try {
+            startActivity(RecentsAuthActivity.intent(this))
+            RecentsFingerprintGate.prompted = true
+            // The activity is the cover. The overlay would sit above the prompt.
+            recentsCover.hide()
+        } catch (e: Exception) {
+            logCover("auth activity failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun logCover(message: String) {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            Log.d("AppLockRecents", message)
+        }
     }
 
     private fun showLockScreen(pkg: String) {
@@ -392,6 +505,7 @@ class AppLockService : AccessibilityService() {
     }
 
     private fun onScreenOff() {
+        rearmRecentsCover("screen off", forceDrop = true)
         LockState.relockAll()
         ProtectionGate.clear()
         recentSubject = null
@@ -547,6 +661,10 @@ class AppLockService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
         LockStore.removeListener(locksChanged)
         recentsCover.hide()
+        RecentsFingerprintGate.onGranted = null
+        RecentsFingerprintGate.onHome = null
+        RecentsFingerprintGate.onAuthFinished = null
+        RecentsFingerprintGate.clear()
         ProtectionController.dismissUnderlying = null
         runCatching { unregisterReceiver(screenReceiver) }
         super.onDestroy()
